@@ -126,7 +126,7 @@ pub fn codemix(threshold: f64, files: &[String], exempt: &HashSet<String>) -> i3
     } else {
         for f in files {
             match fs::read_to_string(f) {
-                Err(e) => eprintln!("ja-slop-lint codemix: {f} 読込失敗: {e} (skip)"),
+                Err(e) => eprintln!("correo codemix: {f} 読込失敗: {e} (skip)"),
                 Ok(t) => scan(&format!("{f} "), &t),
             }
         }
@@ -142,10 +142,10 @@ pub fn codemix(threshold: f64, files: &[String], exempt: &HashSet<String>) -> i3
 }
 
 // ───────────────── characterization tests（抽出前の behavior 固定・2026-07-07）─────────────────
-// ja-slop-lint 抽出のリスク精査（oracle-parity レンズ）が「scan_paragraphs は cargo test 被覆ゼロ・
+// correo 抽出のリスク精査（oracle-parity レンズ）が「scan_paragraphs は cargo test 被覆ゼロ・
 // filter 順序を反転すると ALLCAPS が計上され密度が静かに膨張」と指摘。移設で bit ずれても
 // 気付けるよう、各分岐（識別子/ALLCAPS/exempt 除外・40字skip・行番号・表/見出し strip・inline code
-// strip）を1ケースずつ固定する。この test は codemix.rs と共に ja-slop-lint へ移送し緑を保つ。
+// strip）を1ケースずつ固定する。この test は codemix.rs と共に correo へ移送し緑を保つ。
 #[cfg(test)]
 mod tests {
     use super::*;

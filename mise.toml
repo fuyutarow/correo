@@ -1,0 +1,47 @@
+# correo — mise task runner（qoed 準拠）。
+# [tools] は宣言しない: Rust toolchain は既存の cargo/rustup をそのまま使う（mise 管理外）。
+# 命名規則: 区切りは ":" のみ。形は <domain>:<action>。do/verify は X + X:check。check = 全 gate 集約。
+
+[tasks.fmt]
+alias = "f"                                        # ← `mise run f` はこの alias で解決する（要件）
+description = "Rust source を rustfmt で整形"
+run = "cargo fmt --all"
+
+[tasks."fmt:check"]
+description = "整形チェック（CI 用・非破壊）"
+run = "cargo fmt --all -- --check"
+
+[tasks.lint]
+description = "clippy 静的解析（全 target/feature・warning を deny）"
+run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks.test]
+description = "cargo test（codemix は無辞書で走る; coinage は要 Sudachi 辞書）"
+run = "cargo test"
+
+[tasks.build]
+description = "release build（配布 binary）"
+run = "cargo build --release"
+
+# 集約 gate（CI 相当）。cargo check は入れない: clippy がコンパイル＋lint を兼ねる上位互換ゆえ重複。
+[tasks.check]
+description = "全 gate 集約: fmt:check + lint + test"
+depends = ["fmt:check", "lint", "test"]
+
+[tasks."setup:sudachidict"]
+description = "Sudachi 辞書(core) を sudachidict-core wheel から ~/.cache/correo へ抽出（coinage の live エンジン用・resolve_dict_dir の最終 fallback と一致・要 uv）"
+run = '''
+mkdir -p ~/.cache/correo
+uv run --with sudachipy --with sudachidict-core python -c "
+import sudachidict_core, sudachipy, pathlib, shutil
+dst = pathlib.Path.home() / '.cache' / 'correo'
+shutil.copy(pathlib.Path(sudachidict_core.__file__).parent / 'resources' / 'system.dic', dst / 'system.dic')
+for f in (pathlib.Path(sudachipy.__file__).parent / 'resources').iterdir():
+    if f.is_file():
+        shutil.copy(f, dst / f.name)
+print('correo dict ready:', dst)"
+'''
+
+[tasks.install]
+description = "correo を local に install（cargo install --path .）"
+run = "cargo install --path ."

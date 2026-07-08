@@ -1,4 +1,4 @@
-# ja-slop-lint
+# correo
 
 日本語の LLM slop を検出する lint。ここでの **slop ＝言語の不自然さ**（機械が混ぜた非母語的な日本語）で、**事実性・冗長性・hype は対象外**。
 
@@ -13,28 +13,28 @@ locate 層であって judge ではない ── 候補を flag するだけで�
 ## install
 
 ```sh
-brew install fuyutarow/tap/ja-slop-lint
+brew install fuyutarow/tap/correo
 ```
 
 coinage 用の Sudachi 辞書（system.dic ほか）は formula が同梱し、binary が exe 相対で解決するため **out-of-box** で動く。
 
-cargo から入れる場合（辞書は別途 `$JA_SLOP_LINT_DICT_DIR` か `--dict-dir` で指定）:
+cargo から入れる場合（辞書は別途 `$CORREO_DICT_DIR` か `--dict-dir` で指定）:
 
 ```sh
-cargo install --git https://github.com/fuyutarow/ja-slop-lint
+cargo install --git https://github.com/fuyutarow/correo
 ```
 
 ## 使い方
 
 ```sh
 # ルー語密度（file 無し = stdin）
-echo '本文に framework や pipeline を混ぜた段落。' | ja-slop-lint codemix --threshold 8
+echo '本文に framework や pipeline を混ぜた段落。' | correo codemix --threshold 8
 
 # 造語（辞書外複合）
-echo '構造腕を書く。' | ja-slop-lint coinage --strict --advisory
+echo '構造腕を書く。' | correo coinage --strict --advisory
 
 # allow-list（除外語彙）を注入（統制語彙の .md を渡す）
-ja-slop-lint codemix --exempt vocab.md docs/*.md
+correo codemix --exempt vocab.md docs/*.md
 ```
 
 `--no-default-features` でビルドすると coinage を外した純 codemix になる（Sudachi 依存なし）。

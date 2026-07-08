@@ -20,7 +20,7 @@ pub struct CoinageArgs {
 #[cfg(not(feature = "coinage"))]
 pub fn run_coinage(_args: CoinageArgs) -> Result<i32> {
     eprintln!(
-        "ja-slop-lint coinage: この binary は --features coinage なしで build されている。\n  有効化: cargo build --features coinage（既定の default feature を有効のまま build）"
+        "correo coinage: この binary は --features coinage なしで build されている。\n  有効化: cargo build --features coinage（既定の default feature を有効のまま build）"
     );
     Ok(2)
 }
@@ -209,10 +209,9 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
         files,
     } = args;
     let dict_dir = resolve_dict_dir(dict_dir)
-        .context("--dict-dir か JA_SLOP_LINT_DICT_DIR か $HOME/.cache/ja-slop-lint が必要")?;
-    let engine = Coinage::new(&dict_dir, &allow_files).context(
-        "engine 初期化失敗（--dict-dir か $JA_SLOP_LINT_DICT_DIR で Sudachi 辞書を指定）",
-    )?;
+        .context("--dict-dir か CORREO_DICT_DIR か $HOME/.cache/correo が必要")?;
+    let engine = Coinage::new(&dict_dir, &allow_files)
+        .context("engine 初期化失敗（--dict-dir か $CORREO_DICT_DIR で Sudachi 辞書を指定）")?;
 
     let mut violations: Vec<String> = Vec::new();
     let scan = |fname: &str, lineno: usize, line: &str, violations: &mut Vec<String>| {
@@ -256,7 +255,7 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
     } else {
         for f in &files {
             match fs::read_to_string(f) {
-                Err(e) => eprintln!("ja-slop-lint coinage: {f} 読込失敗: {e} (skip)"),
+                Err(e) => eprintln!("correo coinage: {f} 読込失敗: {e} (skip)"),
                 Ok(t) => {
                     for (i, line) in t.lines().enumerate() {
                         scan(f, i + 1, line, &mut violations);
@@ -297,32 +296,24 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
 }
 
 /// 辞書 dir の解決順:
-///   --dict-dir > $JA_SLOP_LINT_DICT_DIR > exe 相対 ../share/ja-slop-lint/dict（brew の bundle 辞書・
-///   system.dic 存在で filter）> ~/.cache/ja-slop-lint。
+///   --dict-dir > $CORREO_DICT_DIR > exe 相対 ../share/correo/dict（brew の bundle 辞書・
+///   system.dic 存在で filter）> ~/.cache/correo。
 /// exe 相対を挟むことで、brew install 後は env 無設定でも同梱辞書を掴む（out-of-box）。
 #[cfg(feature = "coinage")]
 fn resolve_dict_dir(cli: Option<PathBuf>) -> Option<PathBuf> {
     let with_system_dic = |d: PathBuf| d.join("system.dic").is_file().then_some(d);
-    cli.or_else(|| {
-        std::env::var("JA_SLOP_LINT_DICT_DIR")
-            .ok()
-            .map(PathBuf::from)
-    })
-    .or_else(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| {
-                p.parent()?
-                    .parent()
-                    .map(|d| d.join("share/ja-slop-lint/dict"))
-            })
-            .and_then(with_system_dic)
-    })
-    .or_else(|| {
-        std::env::var("HOME")
-            .ok()
-            .map(|h| PathBuf::from(h).join(".cache/ja-slop-lint"))
-    })
+    cli.or_else(|| std::env::var("CORREO_DICT_DIR").ok().map(PathBuf::from))
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent()?.parent().map(|d| d.join("share/correo/dict")))
+                .and_then(with_system_dic)
+        })
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| PathBuf::from(h).join(".cache/correo"))
+        })
 }
 
 // ── 回帰固定（旧 --self-test subcommand を Rust idiom へ移設・2026-07-06）──
