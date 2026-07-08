@@ -1,0 +1,6 @@
+/target
+/system.dic
+/dict/system.dic
+*.tar.gz
+*.zip
+Cargo.lock.bak

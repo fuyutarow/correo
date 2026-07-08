@@ -1,0 +1,31 @@
+[package]
+name = "ja-slop-lint"
+version = "0.1.0"
+edition = "2024"
+description = "日本語の LLM slop（言語の不自然さ）を検出する lint ── ルー語（code-mixing の latin 密度）・造語（Sudachi 形態素の辞書外複合）・動詞カルク。事実性・冗長性は対象外。"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/fuyutarow/ja-slop-lint"
+
+[lib]
+name = "ja_slop_lint"
+
+[[bin]]
+name = "ja-slop-lint"
+path = "src/main.rs"
+
+[dependencies]
+regex = "1"                                       # codemix 密度・calque の正規表現
+anyhow = "1"                                       # coinage の error-model（Result<i32>）
+# crates.io 未公開のため公式 repo の tag を pin。coinage feature を明示した時のみ引き込む。
+sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", tag = "v0.6.11", optional = true }
+
+[features]
+# 汎用ツールとして coinage（形態素の造語検出）を既定で有効化。--no-default-features で純 codemix。
+default = ["coinage"]
+coinage = ["dep:sudachi"]
+
+[profile.release]
+strip = true
+
+[dev-dependencies]
+tempfile = "3"   # allow-list registry の一時 file parse test 用
