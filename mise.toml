@@ -23,6 +23,25 @@ run = "cargo test"
 description = "release build（配布 binary）"
 run = "cargo build --release"
 
+# 依存の一括最新化。cargo 標準の update は Cargo.lock しか触らないので、Cargo.toml の
+# 要求バージョン自体を上げる cargo-edit（cargo upgrade）を使う。無ければ自動導入。
+# --incompatible で major を跨いだ最新まで上げる（git tag 固定の sudachi は対象外）。
+# 破壊は後段の check が捕える運用: 実行後は必ず mise run check で検収する。
+[tasks.up]
+description = "依存を最新へ一括更新（Cargo.toml の要求を最新 major へ + Cargo.lock 同期）。実行後は mise run check"
+run = '''
+command -v cargo-upgrade >/dev/null 2>&1 || cargo install cargo-edit
+cargo upgrade --incompatible allow
+cargo update
+'''
+
+[tasks."up:check"]
+description = "依存更新の dry-run（Cargo.toml を書き換えず更新候補を一覧）"
+run = '''
+command -v cargo-upgrade >/dev/null 2>&1 || cargo install cargo-edit
+cargo upgrade --incompatible allow --dry-run
+'''
+
 [tasks."lint:self"]
 description = "dogfood: correo で repo 内の *.md を全部 lint（引数ゼロ＝walker・設定は correo.toml 自動発見。readability HARD が ratchet・coinage の新語は advisory に浮いて裁定を待つ）"
 run = "cargo run --quiet -- check"

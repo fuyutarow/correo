@@ -22,6 +22,7 @@ pub mod coinage;
 pub mod config;
 pub mod density;
 pub mod deny;
+pub mod pipeline;
 pub mod prose;
 pub mod readability;
 pub mod report;

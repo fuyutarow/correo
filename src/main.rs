@@ -78,6 +78,14 @@ enum Command {
         /// 対象 file（無指定=stdin）
         files: Vec<String>,
     },
+    /// 動詞カルク（英語動詞＋する/される の接合: deployする）。file 無し=stdin。hook 用の単体経路。
+    Calque {
+        /// 候補報告に留め exit 0（既定は hit で exit 1 — Stop hook の block 用）
+        #[arg(long)]
+        advisory: bool,
+        /// 対象 file（無指定=stdin）
+        files: Vec<String>,
+    },
     /// 造語（Sudachi 辞書外の複合語）。要 --features coinage。
     Coinage {
         /// Sudachi 辞書 dir
@@ -123,6 +131,9 @@ max-ten = 4
 
 fn main() {
     match Cli::parse().command {
+        Command::Calque { advisory, files } => {
+            exit(correo::calque::run_calque(&files, advisory));
+        }
         Command::Codemix {
             threshold,
             allow,
@@ -255,133 +266,17 @@ fn main() {
                     }
                 }
                 let s = correo::suppress::scan(&text);
-                for (line, w, sugg) in correo::deny::scan(&text, &user_deny) {
-                    if s.hit(line, "deny", "denied-term") {
-                        continue;
-                    }
-                    findings.push(correo::report::Finding {
-                        detector: "deny",
-                        rule: "denied-term".into(),
-                        file: f.clone(),
-                        line,
-                        severity: "error",
-                        message: format!(
-                            "「{w}」 is a denied term (judge's recorded verdict) — {sugg}"
-                        ),
-                        data: Some(serde_json::json!({ "word": w, "suggestion": sugg })),
-                    });
-                }
-                for (line, w, sugg) in correo::deny::scan(&text, &builtin_deny) {
-                    if s.hit(line, "deny", "slop-phrase") {
-                        continue;
-                    }
-                    findings.push(correo::report::Finding {
-                        detector: "deny",
-                        rule: "slop-phrase".into(),
-                        file: f.clone(),
-                        line,
-                        severity: "error",
-                        message: format!(
-                            "「{w}…」 is an LLM stock phrase (builtin deny) — {sugg} (unblock: add to allow with a reason)"
-                        ),
-                        data: Some(serde_json::json!({ "word": w, "suggestion": sugg })),
-                    });
-                }
-                for p in correo::codemix::scan_paragraphs(&text, &exempt) {
-                    if p.density >= threshold && !s.hit(p.line, "codemix", "latin-density") {
-                        findings.push(correo::report::Finding {
-                            detector: "codemix",
-                            rule: "latin-density".into(),
-                            file: f.clone(),
-                            line: p.line,
-                            severity: "advisory",
-                            message: format!(
-                                "{:.0} latin per 100 JA chars (JA {}) — judge each token: domain→allow / mention→backticks / gratuitous→rewrite: {}",
-                                p.density,
-                                p.ja_chars,
-                                p.vocab.join(" ")
-                            ),
-                            data: Some(serde_json::json!({
-                                "density": p.density,
-                                "ja_chars": p.ja_chars,
-                                "vocab": p.vocab,
-                            })),
-                        });
-                    }
-                }
-                for x in correo::readability::scan(&text, max_sentence, max_ten) {
-                    if s.hit(x.line, "readability", x.rule) {
-                        continue;
-                    }
-                    findings.push(correo::report::Finding {
-                        detector: "readability",
-                        rule: x.rule.into(),
-                        file: f.clone(),
-                        line: x.line,
-                        severity: match x.severity {
-                            correo::readability::Severity::Hard => "error",
-                            correo::readability::Severity::Advisory => "advisory",
-                        },
-                        message: x.msg,
-                        data: None,
-                    });
-                }
-                for x in correo::rhetoric::scan(&text, &allow_set, &metaphor_lex) {
-                    if s.hit(x.line, "rhetoric", x.rule) {
-                        continue;
-                    }
-                    findings.push(correo::report::Finding {
-                        detector: "rhetoric",
-                        rule: x.rule.into(),
-                        file: f.clone(),
-                        line: x.line,
-                        severity: "advisory",
-                        message: x.msg,
-                        data: None,
-                    });
-                }
-                for x in correo::structure::scan(&text) {
-                    if s.hit(x.line, "structure", x.rule) {
-                        continue;
-                    }
-                    findings.push(correo::report::Finding {
-                        detector: "structure",
-                        rule: x.rule.into(),
-                        file: f.clone(),
-                        line: x.line,
-                        severity: "advisory",
-                        message: x.msg,
-                        data: None,
-                    });
-                }
-                for c in correo::calque::scan(&text) {
-                    if s.hit(c.line, "calque", "verb-calque") {
-                        continue;
-                    }
-                    findings.push(correo::report::Finding {
-                        detector: "calque",
-                        rule: "verb-calque".into(),
-                        file: f.clone(),
-                        line: c.line,
-                        severity: "advisory",
-                        message: c.msg,
-                        data: Some(serde_json::json!({ "word": c.word })),
-                    });
-                }
-                for d in correo::density::scan(&text) {
-                    if s.hit(d.line, "density", d.rule) {
-                        continue;
-                    }
-                    findings.push(correo::report::Finding {
-                        detector: "density",
-                        rule: d.rule.into(),
-                        file: f.clone(),
-                        line: d.line,
-                        severity: "advisory",
-                        message: d.msg,
-                        data: None,
-                    });
-                }
+                let ctx = correo::pipeline::Ctx {
+                    max_sentence,
+                    max_ten,
+                    threshold,
+                    exempt: &exempt,
+                    allow_set: &allow_set,
+                    metaphor_lex: &metaphor_lex,
+                    user_deny: &user_deny,
+                    builtin_deny: &builtin_deny,
+                };
+                findings.extend(correo::pipeline::scan_document(f, &text, &s, &ctx));
                 sup.insert(f.clone(), s);
             }
             #[cfg(feature = "coinage")]

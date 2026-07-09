@@ -16,10 +16,14 @@ pub struct Finding {
 
 /// text から latin 動詞＋する/される 接合を列挙する。fence/inline code 内は言及なので対象外。
 pub fn scan(text: &str) -> Vec<Finding> {
-    // latin 語（2 字以上）に する/され 系の活用が【直接】続く形。助詞を挟む正常形
-    // （"ls を実行して"）は接合でないので対象外。
+    // 小文字始まりの latin 語（≥2 字）に する/され 系の活用が続く形。dotfiles hook の
+    // session-hardened regex を移植（2026-07-09・単一 source of truth 化）:
+    //   - 小文字始まり限定 ⇒ 英語動詞（commit/cite）のみ・固有名（GitHub/AWS）は除外。
+    //   - 活用直前の空白は許す（` *`）⇒ 「flag された」を捕捉（された gap で 1 session 素通りした）。
+    //   - 活用は voice/tense/aspect を網羅（させ*/したい/したく を含む — improveさせたい gap）。
+    //   - 助詞を挟む正常形（「ls を実行して」「commit を実行する」）は を が割るので対象外。
     let rx = Regex::new(
-        r"([a-zA-Z][a-zA-Z0-9_-]+)(する|します|しました|した|して|しよう|しない|せず|され(?:る|た|て|ます)?|できる|できます)",
+        r"(?:^|[^A-Za-z])([a-z][a-zA-Z-]+) *(する|します|した|して|している|していた|しています|しており|される|された|されて|されない|されました|できる|できた|できない|しない|しなかった|せず|しよう|すれば|すべき|しろ|せよ|させる|させます|させた|させて|させている|させたい|させない|させず|させよう|したい|したく|したければ)",
     )
     .unwrap();
     let inline = Regex::new(r"`[^`]*`").unwrap();
@@ -43,6 +47,42 @@ pub fn scan(text: &str) -> Vec<Finding> {
     out
 }
 
+/// CLI entry（stdin か file 群を読み、カルク候補を列挙）。hook のバックエンド用に
+/// 単体で呼べる — `check` は *.md file を要するが、Stop hook が持つのは turn の text なので
+/// stdin 経路が要る（codemix/coinage subcommand と同型）。hit があれば exit 1（--advisory で 0）。
+pub fn run_calque(files: &[String], advisory: bool) -> i32 {
+    use std::io::Read;
+    let mut n = 0usize;
+    let mut report = |label: &str, text: &str| {
+        for f in scan(text) {
+            n += 1;
+            println!("{label}L{}: [calque/verb-calque] {}", f.line, f.msg);
+        }
+    };
+    if files.is_empty() {
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf).ok();
+        report("", &buf);
+    } else {
+        for f in files {
+            match std::fs::read_to_string(f) {
+                Err(e) => eprintln!("correo calque: {f} read failed: {e} (skip)"),
+                Ok(t) => report(&format!("{f}:"), &t),
+            }
+        }
+    }
+    if n == 0 {
+        println!("CALQUE PASS: no english-verb + する/される splices");
+        0
+    } else if advisory {
+        println!("CALQUE CANDIDATES: {n} (advisory)");
+        0
+    } else {
+        println!("CALQUE FAIL: {n}");
+        1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,6 +101,30 @@ mod tests {
         // 漢語サ変（実行する）・助詞を挟む形（ls を実行して）・カタカナ動詞化（デプロイする）は対象外。
         assert!(scan("コマンドを実行する。デプロイする手順を示す。").is_empty());
         assert!(scan("ls を実行して結果を確認する。").is_empty());
+    }
+
+    #[test]
+    fn matches_dotfiles_hook_regression_cases() {
+        // dotfiles hook の comment に記録された session-learned ケース（移植の回帰）。
+        // BLOCK 側:
+        for bad in [
+            "これを citeする。",
+            "flag された値を見る。", // 空白挟み・された
+            "improveさせたい。",     // させたい
+            "de-risk する方針。",    // ハイフン語＋空白
+            "refactorさせる。",
+        ] {
+            assert!(!scan(bad).is_empty(), "block されなかった: {bad}");
+        }
+        // PASS 側: 大文字始まりの固有名・助詞挟み・漢語。
+        for ok in [
+            "GitHubした。", // 大文字始まり＝固有名
+            "commit を実行する。",
+            "解消されている。",
+            "設計した。",
+        ] {
+            assert!(scan(ok).is_empty(), "誤検出した: {ok}");
+        }
     }
 
     #[test]
