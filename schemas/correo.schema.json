@@ -32,7 +32,7 @@
       "properties": {
         "corpus": {
           "type": "string",
-          "description": "実コーパス由来の語彙表の path（1 行 1 語・TSV は先頭列・~ 展開可）。設定すると辞書に無い複合を corpus 照合し、無い複合は error（造語）・在る複合は自然として消す。mise run setup:corpus が jawiki 記事タイトルを配置する。"
+          "description": "実在語彙表の path（1 行 1 語・TSV は先頭列・~ 展開可。setup:corpus が SudachiDict full lex ∪ jawiki タイトルを配置）。役割は実在の証明で候補を消すことだけ — 不在は advisory のまま（生産的複合は有限語彙表に載らないため不在≠造語）。"
         }
       }
     },

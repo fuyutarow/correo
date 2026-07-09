@@ -7,7 +7,7 @@
 **LLM slop の検出**（機械が混ぜた非母語的な日本語。候補を挙げるだけで判定しない）
 
 - **codemix** — 地の文の latin/100字 密度（ルー語）。識別子・ALLCAPS 略語・allow-list に登録した語は除外。
-- **coinage** — Sudachi 形態素解析で辞書外の複合語（不自然な造語・`slop軸` のような混種語も含む）を検出。corpus 語彙表を設定すると第二の証拠で裁く: **corpus に無い複合は error（`機械床`）・在る複合は自然として消す（`物理層`）** — 辞書だけでは区別できない二者を頻度の実績で分ける。
+- **coinage** — Sudachi 形態素解析で辞書外の複合語（不自然な造語・`slop軸` のような混種語も含む）を候補として挙げる。corpus（実在の語彙表）を設定すると、**実在が証明できた複合（`物理層`）を候補から消して** judge へ渡すノイズを減らす。不在は error にしない — `使用例` のような生産的複合はどんな有限の語彙表にも載らないため、**不在≠造語**。造語の確定は judge が下し、その裁定は `[deny]` が永続化する（`機械床` の再侵入は HARD で落ちる）。
 - **calque**（順次）— 英語動詞を「する」に接ぐ code-switching。
 
 **木下原則の検査**（機械が言い切れる判定だけ — HARD）
@@ -46,6 +46,11 @@ correo check --format json | your-judge --schema three-way.json
 - **Tier 2（MIX・proxy）** — 逆茂木の proxy（文頭の連体修飾チェーン長）→ flag のみ、judge が確認。
 - **Tier 3（VIBE・座標のみ）** — トピックセンテンス・事実と意見・スリカエ → 段落第一文等の座標を構造化出力して LLM-judge に渡す（correo は判定しない）。
 - 係り受けが要る原則（主述近接・修飾語順）は形態素の外 — proxy 化できた分だけ Tier 2 へ。
+
+## roadmap — coinage の証拠強化
+
+- **語彙表の Bloom filter 化** — 現在の語彙表は ~390万行のテキスト（数十 MB・任意設定）。Bloom filter に落とせば**数 MB を binary か formula に同梱**でき、利用者は何も取得せず実在照合が効く（偽陽性は「候補を稀に消す」安全側にしか倒れない）。
+- **実文 n-gram による error 昇格** — 語彙表（lexicon）の不在は造語の証拠にならない。しかし**実文コーパスの頻度ゼロ**は強い証拠になる（`使用例` は実文に大量出現し `機械床` はゼロ）。BCCWJ n-gram か jawiki 全文から複合語 n-gram 集合を構築できれば、judge を待たない error 昇格が正当化される。それまで造語の確定は judge → `[deny]`。
 
 ## install
 
@@ -110,13 +115,15 @@ threshold = 8.0
 max-sentence = 100
 max-ten = 4
 
-# 実コーパスの語彙表（設定すると coinage が proactive に造語を error 判定できる）
+# 実在語彙表（coinage の候補から実在語を消して judge へのノイズを減らす）
 [coinage]
-corpus = "~/.cache/correo/corpus.tsv"   # mise run setup:corpus が配置（jawiki 記事タイトル）
+corpus = "~/.cache/correo/corpus.tsv"   # mise run setup:corpus が配置
 
-# deny は「実在するが使わない」と決めた語の house rule（値は書き直しの案・HARD）。
-# 造語はここに書かない — corpus 照合が自動で error にする。
+# deny ＝ judge の確定裁定の永続 cache（値は書き直しの案・HARD＝exit 1）。
+# 造語の最終判定は意味の領分で機械には下せない — judge が却下した語をここへ書くと
+# 再侵入を機械が阻止する。実在するが使わない語（くだけた話し言葉等）にも使える。
 [deny]
+"機械床" = "「機械的に判定できる lint」など標準的な言い方へ書き直す"
 "ぶっちゃけ" = "くだけた話し言葉 — 「率直に言えば」等へ"
 ```
 

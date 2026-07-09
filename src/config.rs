@@ -32,10 +32,11 @@ pub struct Config {
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CoinageCfg {
-    /// 実コーパス由来の語彙表（1 行 1 語・TSV は先頭列・# 行は無視）。設定すると strict 候補を
-    /// corpus 照合し、**corpus に無い複合は error へ昇格（proactive な造語判定）・在る複合は
-    /// 自然として消す**（物理層 等、C 単位に無いだけの実在語）。辞書 membership だけでは
-    /// 機械床/物理層 を区別できない精度天井を、頻度の証拠で破る（2026-07-09）。
+    /// 実在語彙表（1 行 1 語・TSV は先頭列・# 行は無視。setup:corpus = SudachiDict full lex ∪
+    /// jawiki タイトル）。役割は「実在の証明で候補を**消す**」だけ（物理層・混種語 等を救い
+    /// advisory ノイズと allow 保守を減らす）。不在を error に昇格させることは**しない** —
+    /// 使用例/実用文 級の生産的複合は有限語彙表に載らない（387万語で実測 0・2026-07-09）ため、
+    /// 不在≠造語。造語の確定は judge の裁定＝[deny] が持つ。
     pub corpus: Option<PathBuf>,
 }
 

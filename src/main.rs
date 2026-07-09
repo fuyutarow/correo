@@ -327,23 +327,25 @@ fn main() {
                             {
                                 continue;
                             }
-                            let (severity, message) = match &corpus {
-                                Some(c) if c.contains(&h.compound) => continue, // 実コーパスに実在＝自然
-                                Some(_) => (
-                                    "error",
-                                    format!(
-                                        "「{}」は辞書にも corpus にも無い複合 — 造語。標準的な言い方へ書き直す（意図的なら allow へ）",
-                                        h.compound
-                                    ),
+                            // corpus の役割は「実在の証明で候補を消す」こと【だけ】。不在を error に
+                            // 昇格させない — 使用例/実用文 級の生産的複合はどんな有限語彙表にも
+                            // 載らず（full lex 387万語で実測 0・2026-07-09）、不在≠造語。造語の
+                            // 確定は judge の領分で、その裁定の永続化が [deny]。
+                            if let Some(c) = &corpus
+                                && c.contains(&h.compound)
+                            {
+                                continue; // 実在の証明（物理層・混種語 等）＝自然
+                            }
+                            if cfg.deny.contains_key(&h.compound) {
+                                continue; // deny が error として報告済み — 二重報告しない
+                            }
+                            let (severity, message) = (
+                                "advisory",
+                                format!(
+                                    "「{}」は辞書見出し語でない複合 — judge へ（自然なら allow・確定造語なら deny か書き直し）",
+                                    h.compound
                                 ),
-                                None => (
-                                    "advisory",
-                                    format!(
-                                        "「{}」は辞書見出し語でない複合 — 標準語へ書き直すか correo.toml の allow に登録",
-                                        h.compound
-                                    ),
-                                ),
-                            };
+                            );
                             findings.push(correo::report::Finding {
                                 detector: "coinage",
                                 rule: "dictionary-coinage".into(),
