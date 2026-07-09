@@ -16,25 +16,31 @@ use std::collections::HashMap;
 /// （guitarrapc の 200+ 記事実測で FP 上位の報告）、世界初/革命的/パラダイムシフト/民主化/究極の/
 /// 驚異的 は正当な学術・事実主張に現れる。誤爆が信頼を殺す方針は変えない。
 pub const BUILTIN: &[(&str, &str)] = &[
-    ("可能性を解き放", "具体的に何ができるようになるかを書く"),
-    ("架け橋とな", "具体的な機能・役割を書く"),
-    ("世界へようこそ", "導入の常套句 — 内容から始める"),
-    ("いかがでした", "ブログ定型の結び — 要点の再掲で締める"),
-    ("ゲームチェンジャー", "何がどう変わるかを書く"),
-    ("魔法のよう", "仕組みを書く"),
-    ("潜在能力を引き出", "何がどう改善するかを数値で書く"),
+    ("可能性を解き放", "state concretely what becomes possible"),
+    ("架け橋とな", "name the concrete function or role"),
+    ("世界へようこそ", "stock opener — start with the content"),
+    (
+        "いかがでした",
+        "blog-closer boilerplate — end by restating the key points",
+    ),
+    ("ゲームチェンジャー", "state what changes and how"),
+    ("魔法のよう", "explain the mechanism"),
+    ("潜在能力を引き出", "state the improvement in numbers"),
     (
         "スーパーチャージ",
-        "marketing の直訳 — 具体的な向上幅を書く",
+        "marketing calque — state the concrete gain",
     ),
-    ("業界を再定義", "何が変わるかを書く"),
-    ("フロンティアを開拓", "常套の比喩 — 対象領域を名指しする"),
-    ("根本的に変革", "何がどう変わるかを書く"),
-    ("驚嘆させ", "感情でなく事実・数値で示す"),
-    ("未来を変える", "どの作業がどう変わるかを書く"),
+    ("業界を再定義", "state what actually changes"),
+    (
+        "フロンティアを開拓",
+        "stock metaphor — name the actual domain",
+    ),
+    ("根本的に変革", "state what changes and how"),
+    ("驚嘆させ", "show facts and numbers, not awe"),
+    ("未来を変える", "state which task changes and how"),
     (
         "新たな基準を設定",
-        "sets a new standard の直訳 — 基準の中身を書く",
+        "calque of 'sets a new standard' — state the standard itself",
     ),
 ];
 

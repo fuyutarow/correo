@@ -191,7 +191,7 @@ fn main() {
                 files
             };
             if files.is_empty() {
-                eprintln!("correo check: 対象の *.md がありません");
+                eprintln!("correo check: no *.md targets found");
                 exit(2);
             }
 
@@ -204,6 +204,32 @@ fn main() {
             let mut user_deny = cfg.deny.clone();
             user_deny.retain(|w, _| !allow_set.contains(w.as_str()));
 
+            // メタファー語彙表（data・optional）: correo.toml 指定（相対は toml の場所基準）
+            // > exe 相対 share/correo/（brew 配布）。無ければ metaphor-density は沈黙。
+            let metaphor_lex: Vec<(String, String)> = cfg
+                .rhetoric
+                .metaphor_lexicon
+                .as_ref()
+                .map(|p| {
+                    if p.is_relative() {
+                        cfg_path
+                            .as_ref()
+                            .and_then(|c| c.parent())
+                            .map(|d| d.join(p))
+                            .unwrap_or_else(|| p.clone())
+                    } else {
+                        p.clone()
+                    }
+                })
+                .or_else(|| {
+                    std::env::current_exe().ok().and_then(|exe| {
+                        exe.parent()
+                            .map(|d| d.join("../share/correo/metaphor-lex.tsv"))
+                    })
+                })
+                .map(|p| correo::rhetoric::load_lexicon(&p))
+                .unwrap_or_default();
+
             let mut findings: Vec<correo::report::Finding> = Vec::new();
             let mut fixed = 0usize;
             let mut sup: std::collections::HashMap<String, correo::suppress::Suppressions> =
@@ -211,7 +237,7 @@ fn main() {
             for f in &files {
                 let mut text = match std::fs::read_to_string(f) {
                     Err(e) => {
-                        eprintln!("correo check: {f} 読込失敗: {e} (skip)");
+                        eprintln!("correo check: {f} read failed: {e} (skip)");
                         continue;
                     }
                     Ok(t) => t,
@@ -221,7 +247,7 @@ fn main() {
                     let (out, n) = correo::readability::fix(&text);
                     if n > 0 {
                         if let Err(e) = std::fs::write(f, &out) {
-                            eprintln!("correo check: {f} 書き込み失敗: {e}");
+                            eprintln!("correo check: {f} write failed: {e}");
                         } else {
                             fixed += n;
                             text = out;
@@ -239,7 +265,9 @@ fn main() {
                         file: f.clone(),
                         line,
                         severity: "error",
-                        message: format!("「{w}」は deny 登録語（judge の確定裁定）— {sugg}"),
+                        message: format!(
+                            "「{w}」 is a denied term (judge's recorded verdict) — {sugg}"
+                        ),
                         data: Some(serde_json::json!({ "word": w, "suggestion": sugg })),
                     });
                 }
@@ -254,7 +282,7 @@ fn main() {
                         line,
                         severity: "error",
                         message: format!(
-                            "「{w}…」は LLM 常套句（組み込み deny）— {sugg}（解除は allow へ）"
+                            "「{w}…」 is an LLM stock phrase (builtin deny) — {sugg} (unblock: add to allow with a reason)"
                         ),
                         data: Some(serde_json::json!({ "word": w, "suggestion": sugg })),
                     });
@@ -268,7 +296,7 @@ fn main() {
                             line: p.line,
                             severity: "advisory",
                             message: format!(
-                                "{:.0} latin/100字 (JA {}) — 3-way 分類へ: {}",
+                                "{:.0} latin per 100 JA chars (JA {}) — judge each token: domain→allow / mention→backticks / gratuitous→rewrite: {}",
                                 p.density,
                                 p.ja_chars,
                                 p.vocab.join(" ")
@@ -294,6 +322,20 @@ fn main() {
                             correo::readability::Severity::Hard => "error",
                             correo::readability::Severity::Advisory => "advisory",
                         },
+                        message: x.msg,
+                        data: None,
+                    });
+                }
+                for x in correo::rhetoric::scan(&text, &allow_set, &metaphor_lex) {
+                    if s.hit(x.line, "rhetoric", x.rule) {
+                        continue;
+                    }
+                    findings.push(correo::report::Finding {
+                        detector: "rhetoric",
+                        rule: x.rule.into(),
+                        file: f.clone(),
+                        line: x.line,
+                        severity: "advisory",
                         message: x.msg,
                         data: None,
                     });
@@ -370,7 +412,7 @@ fn main() {
                             Ok(s) => Some(s),
                             Err(e) => {
                                 eprintln!(
-                                    "correo check: {e} — mise run setup:corpus で取得（それまで coinage は advisory）"
+                                    "correo check: {e} — run `mise run setup:corpus` to fetch (coinage stays advisory until then)"
                                 );
                                 None
                             }
@@ -409,7 +451,7 @@ fn main() {
                             let (severity, message) = (
                                 "advisory",
                                 format!(
-                                    "「{}」は辞書見出し語でない複合 — judge へ（自然なら allow・確定造語なら deny か書き直し）",
+                                    "「{}」 is not a dictionary headword — judge: natural→ignore / keep→allow / confirmed coinage→deny or rewrite",
                                     h.compound
                                 ),
                             );
@@ -428,12 +470,12 @@ fn main() {
                         }
                     }
                     Err(e) => eprintln!(
-                        "correo check: coinage skip ({e}) — mise run setup:sudachidict で辞書を用意"
+                        "correo check: coinage skipped ({e}) — run `mise run setup:sudachidict` to install the dictionary"
                     ),
                 }
             }
             #[cfg(not(feature = "coinage"))]
-            eprintln!("correo check: coinage skip（--features coinage なしの build）");
+            eprintln!("correo check: coinage skipped (built without --features coinage)");
 
             findings.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
             let report = correo::report::Report::new(findings);
@@ -472,7 +514,7 @@ fn main() {
                         );
                     }
                     let cfg_note = cfg_path
-                        .map(|p| format!("・設定 {}", p.display()))
+                        .map(|p| format!(", config {}", p.display()))
                         .unwrap_or_default();
                     let fix_note = if fixed > 0 {
                         format!("・fixed {fixed}")

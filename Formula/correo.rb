@@ -33,6 +33,8 @@ class Correo < Formula
 
     # 辞書一式を share/correo/dict へ。binary は exe 相対 (bin/../share/correo/dict) を out-of-box 解決
     # する (resolve_dict_dir)。env 無設定でも system.dic 存在で coinage が動く。
+    # メタファー語彙表（data）— binary は exe 相対 (bin/../share/correo/) で解決する
+    (share/"correo").install "lexicons/metaphor-lex.tsv"
     dict = share/"correo/dict"
     dict.mkpath
 

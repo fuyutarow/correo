@@ -1,0 +1,47 @@
+# metaphor-lex.tsv — 装飾メタファー語彙（rhetoric/metaphor-density が読む data）
+#
+# これは機構ではなく judge 裁定の cache である。理想の機構は対照 corpus からの再生成
+# （LLM 生成文 corpus での出現率 >> 人間文書 corpus での出現率、を測って抽出する
+# `mise run setup:metaphor-lex` — roadmap）で、この file はその手動 bootstrap 版。
+# binary に hardcode しない理由: 集合は data であり、裁定履歴ごと編集・差し替え可能で
+# あるべきだから（Sudachi 辞書・corpus 語彙表と同じ扱い）。
+#
+# 形式: 語幹<TAB>書き換えの指示（message にそのまま載る英語の prompt）
+# 採用基準: 人間の実用文にほぼ出現しない直訳比喩のみ（精度最優先・較正 fleet wf_0327d9d2）。
+# 焼き込み(名詞形) は Photoshop 用語のため動詞形語幹のみ収録。
+発射台	write 足がかり/出発点, or the literal term
+避難所	write 退避先/フォールバック
+密輸	write 持ち込む/紛れ込ませる
+架け橋	name the concrete function (橋渡し is the established term)
+懸け橋	name the concrete function
+羅針盤	write 指針/ガイドライン
+焼き込ん	write ハードコード/組み込む
+焼き込む	write ハードコード/組み込む
+交響曲	drop the symphony metaphor; describe the composition plainly
+タペストリー	drop; describe the actual structure
+万華鏡	write 多様な/多面的
+大海原	name the actual domain
+旅路	write 過程/道のり
+解き放	state concretely what becomes possible
+紡ぎ	state the plain verb (作る/組み立てる)
+紡ぐ	state the plain verb
+紡い	state the plain verb
+織りな	state the plain verb (構成する)
+守護者	name the mechanism (型検査/ガード)
+縫い合わ	write 統合する/連携させる
+照らし出	write 明らかにする
+武器庫	write 道具一式/ツール群
+松明	write 引き継ぐ (バトン is the established idiom)
+祭壇	drop the sacrifice metaphor; state the trade-off
+解毒剤	state the countermeasure plainly
+隠れた宝石	write 掘り出し物, or just name the find
+完璧な嵐	write 複合要因
+操縦席	write 主導権を握る
+#
+# 棄却（人間の定着語 — 収録すると誤爆する。較正 fleet の裁定記録・2026-07-09）:
+#   銀の弾丸(Brooks 定着)・諸刃の剣・試金石・橋渡し(橋渡し研究)・触媒・化学反応・起爆剤・
+#   呼び水(財政用語)・処方箋・特効薬/万能薬・魔法の杖・聖杯(ML 定着)・黒魔術(Perl 文化)・
+#   錬金術・灯台(灯台下暗し)・北極星(North Star metric)・荒野(テストのない荒野)・
+#   未踏(IPA 固有名)・要塞(要塞ホスト)・踏み台(踏み台サーバ)・蒸留(知識蒸留)・青写真・
+#   源泉(源泉徴収)・心臓部・宝庫・バトン・息吹/芽吹(時候挨拶)・道しるべ・深淵(ニーチェ定番)・
+#   交差点(literal)・地平(解釈学)・解像度(ビジネス語定着)・実を結ぶ・浮き彫り・天井(性能の天井)

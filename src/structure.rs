@@ -25,7 +25,7 @@ pub fn scan(text: &str) -> Vec<Violation> {
                 rule: "bullet-template",
                 severity: Severity::Advisory,
                 msg: format!(
-                    "太字見出し＋コロンの箇条書きが {n} 連続 — LLM の定型 layout。散文か表を検討"
+                    "{n} consecutive bold-label bullets — LLM boilerplate layout; rewrite as prose or a table"
                 ),
             });
         }
@@ -60,7 +60,7 @@ pub fn scan(text: &str) -> Vec<Violation> {
                     line: i + 1,
                     rule: "colon-continuation",
                     severity: Severity::Advisory,
-                    msg: "述語＋コロンで箇条書きへ接続 — 英語の直訳調。「次の通り。」で切るか名詞で受ける"
+                    msg: "predicate + colon flowing into a block — English calque; close with 「次の通り。」 or end on a noun"
                         .to_string(),
                 });
             }
@@ -80,7 +80,7 @@ pub fn scan(text: &str) -> Vec<Violation> {
                 rule: "connector-pileup",
                 severity: Severity::Advisory,
                 msg: format!(
-                    "文頭接続詞が {n} 文連続（また/さらに/そして…）— 論理の接続を本文で書く"
+                    "{n} consecutive sentence-initial connectors (また/さらに/そして…) — write the logical link inside the prose"
                 ),
             });
         }
@@ -103,7 +103,9 @@ pub fn scan(text: &str) -> Vec<Violation> {
                 line: start,
                 rule: "opener-repetition",
                 severity: Severity::Advisory,
-                msg: format!("同じ書き出し「{prev}…」が {n} 文連続 — 構文を変える"),
+                msg: format!(
+                    "same opener 「{prev}…」 for {n} consecutive sentences — vary the syntax"
+                ),
             });
         }
     };

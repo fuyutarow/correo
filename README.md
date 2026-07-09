@@ -22,6 +22,10 @@
 
 - 圧縮率（bits/字）で薄い反復を検出。段落の近重複も字 bigram 類似で検出。
 
+**修辞密度 — rhetoric**（文体の指紋・全て advisory・文書単位）
+
+- 装飾メタファーの密度（「発射台」「密輸」「解き放つ」級の直訳比喩 — 語彙は binary に持たず `lexicons/metaphor-lex.tsv` の **data**。採用 28 語幹と棄却 35 語の裁定記録が file 内に同居し、検出時は語彙と書き換え指示を列挙して judge へ渡す）。対立法「ではなく」・「——」挿入・見出し副題の統一率は **2 指標以上の同時超過でだけ** 1 件に合成する。単独では正当な技法であり、rate 単独の発火は人間の名文を先に撃つと反証で実測された（青空文庫の古典は生成文 corpus より対立法率が上に座る）。30 文未満は計測不能として沈黙。
+
 **語彙の裁定 — deny**
 
 - **slop-phrase（組み込み）** — LLM 常套句（`架け橋となる`・`可能性を解き放つ`・`いかがでしたか` 等）を出荷時の裁定として HARD で弾く。Vale の style 配布物に相当する「意見のある既定」— 解除はその語を allow に書く（拒否権は利用者にある）。
@@ -93,6 +97,8 @@ module 分割は性質で切り、出自はこの表が規則ごとに記す。�
 | structure/colon-continuation | 定型構造 | ひらがな＋コロン→block 隣接 | preset-ai-writing 移植（Sudachi 不要化） | advisory |
 | density/low-information-density | 情報密度 | deflate 圧縮率 < 11 bits/字 | 独自（Shannon） | advisory |
 | density/near-duplicate | 情報密度 | 字 bigram 類似 ≥ 0.65 | 独自 | advisory |
+| rhetoric/metaphor-density | 修辞密度 | 外部語彙表 data×rate（言及・引用・表は除外） | 独自（較正 fleet 2026-07-09・採用/棄却の裁定は語彙表内に記録） | advisory |
+| rhetoric/stylometric-uniformity | 修辞密度 | 対立法/ダッシュ/副題統一の composite（2+ 指標） | 独自（同上・単独 rate 発火は反証により禁止） | advisory |
 | deny/slop-phrase | 語彙の裁定 | 語幹辞書（組み込み 14 語） | 独自＋preset-ai-writing hype 辞書から精度選別 | error |
 | deny/denied-term | 語彙の裁定 | user 辞書（correo.toml） | judge の確定裁定 | error |
 
@@ -161,8 +167,8 @@ correo readability report.md
 ```
 
 `check` の指摘は `file:line: [検出器/規則] 説明` の一行形式。exit 1 に数えるのは error
-（readability の HARD 違反と deny）。codemix・coinage・calque・structure・density は
-advisory（judge へ渡す候補）として数える。
+（readability の HARD 違反と deny）。codemix・coinage・calque・structure・density・rhetoric
+は advisory（judge へ渡す候補）として数える。
 `--no-default-features` でビルドすると coinage を外した純 codemix になる（Sudachi 依存なし）。
 
 ## 設定 — correo.toml（自動発見・無くても動く）

@@ -57,7 +57,7 @@ pub fn scan(text: &str) -> Vec<Finding> {
                 line: *line,
                 rule: "low-information-density",
                 msg: format!(
-                    "情報密度が低い（{bpc:.1} bits/字 < {MIN_BITS_PER_CHAR}）— 反復・定型の疑い。中身を足すか削る"
+                    "low information density ({bpc:.1} bits/char < {MIN_BITS_PER_CHAR}) — likely repetition/boilerplate; add substance or cut"
                 ),
             });
         }
@@ -79,7 +79,7 @@ pub fn scan(text: &str) -> Vec<Finding> {
                     line: sized[j].0,
                     rule: "near-duplicate",
                     msg: format!(
-                        "L{} とほぼ同内容（類似 {c:.2}）— 水増しか貼り直し。片方へ集約する",
+                        "near-duplicate of L{} (similarity {c:.2}) — padding or re-paste; consolidate into one",
                         sized[i].0
                     ),
                 });

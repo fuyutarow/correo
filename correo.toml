@@ -52,3 +52,7 @@ corpus = "~/.cache/correo/corpus.tsv"
 [readability]
 max-sentence = 100
 max-ten = 4
+
+# メタファー語彙表 = data（機構でも hardcode でもない・裁定記録は file 内 comment）
+[rhetoric]
+metaphor-lexicon = "lexicons/metaphor-lex.tsv"

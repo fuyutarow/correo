@@ -71,7 +71,9 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 line: *line,
                 rule: "sentence-length",
                 severity: Severity::Hard,
-                msg: format!("一文 {n} 字 (> {max_sentence}) — 文を切る（一文一義）"),
+                msg: format!(
+                    "sentence {n} chars (>{max_sentence}) — split it (one idea per sentence)"
+                ),
             });
         }
         let ten = s.matches('、').count();
@@ -80,7 +82,9 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 line: *line,
                 rule: "max-ten",
                 severity: Severity::Hard,
-                msg: format!("読点 {ten} 個 (> {max_ten}) — 文を分割するか構造を変える"),
+                msg: format!(
+                    "{ten} commas 「、」 (>{max_ten}) — split the sentence or restructure"
+                ),
             });
         }
         if let Some(m) = dneg.find(s) {
@@ -88,7 +92,10 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 line: *line,
                 rule: "double-negative",
                 severity: Severity::Hard,
-                msg: format!("慣用二重否定「{}…」— 肯定形で言い切る", m.as_str()),
+                msg: format!(
+                    "idiomatic double negative 「{}…」 — state it affirmatively",
+                    m.as_str()
+                ),
             });
         }
         let hedges: Vec<&str> = hedge.find_iter(s).map(|m| m.as_str()).collect();
@@ -98,7 +105,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 rule: "hedge-pileup",
                 severity: Severity::Hard,
                 msg: format!(
-                    "ぼかし連発 ({}) — 言い切るか、根拠を添えて 1 つに絞る",
+                    "stacked hedges ({}) — commit to the claim, or keep one hedge with evidence",
                     hedges.join("・")
                 ),
             });
@@ -108,7 +115,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 line: *line,
                 rule: "demonstrative-chain",
                 severity: Severity::Hard,
-                msg: "指示語 3 つ以上 — 指す対象を名詞で書き直す".to_string(),
+                msg: "3+ demonstratives in one sentence — name the referents".to_string(),
             });
         }
         // 「そのもの」は語彙単位（の×2 を含む）— 連鎖に数えない（2026-07-09 dogfood FP）。
@@ -126,7 +133,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                     rule: "no-chain",
                     severity: Severity::Hard,
                     msg: format!(
-                        "「の」3 連鎖（{}…）— 語順を変えるか複合語/句へ畳む",
+                        "「の」×3 chain 「{}…」 — reorder, or fold into a compound/phrase",
                         m.as_str()
                     ),
                 });
@@ -137,7 +144,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 line: *line,
                 rule: "verbose-potential",
                 severity: Severity::Hard,
-                msg: "「することができ…」— 「できる」で言い切る（簡潔）".to_string(),
+                msg: "「することができ…」 — write 「できる」 (concision)".to_string(),
             });
         }
         if let Some(m) = kanji_run.find(s) {
@@ -146,7 +153,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 rule: "kanji-run",
                 severity: Severity::Advisory,
                 msg: format!(
-                    "漢字 {} 連続「{}」— 読点や送り仮名で切る（固有名なら無視）",
+                    "{} consecutive kanji 「{}」 — break with kana; ignore if a proper noun",
                     m.as_str().chars().count(),
                     m.as_str()
                 ),
@@ -157,7 +164,8 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 line: *line,
                 rule: "exclamation",
                 severity: Severity::Advisory,
-                msg: "感嘆符 ！ — 実用文では感情でなく事実で示す（木下）".to_string(),
+                msg: "「！」 in expository prose — state the fact, drop the excitement (Kinoshita)"
+                    .to_string(),
             });
         }
         if polite.is_match(s) {
@@ -182,7 +190,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 rule: "style-mixing",
                 severity: Severity::Hard,
                 msg: format!(
-                    "文体混在: この文だけ{name}体 (敬体 {} 文 / 常体 {} 文) — どちらかへ統一",
+                    "style mixing: this sentence is the minority {name} style (polite {} / plain {}) — unify",
                     polite_lines.len(),
                     plain_lines.len()
                 ),
@@ -268,17 +276,17 @@ pub fn run_readability(args: ReadabilityArgs) -> i32 {
     }
     if hard == 0 && adv == 0 {
         println!(
-            "READABILITY PASS: Tier1 違反なし（文長・読点・文体混在・二重否定・ぼかし・指示語・の連鎖・冗長）"
+            "READABILITY PASS: no violations (length, commas, style mix, double negative, hedges, demonstratives, の-chain, verbosity)"
         );
         0
     } else if hard == 0 {
-        println!("READABILITY PASS: HARD 違反なし（advisory {adv} 件 — judge/人が確認）");
+        println!("READABILITY PASS: no hard violations ({adv} advisory — route to judge/human)");
         0
     } else if args.advisory {
-        println!("READABILITY CANDIDATES: HARD {hard} 件 + advisory {adv} 件（advisory mode）");
+        println!("READABILITY CANDIDATES: {hard} hard + {adv} advisory (advisory mode)");
         0
     } else {
-        println!("READABILITY FAIL: {hard} 件（+ advisory {adv} 件）");
+        println!("READABILITY FAIL: {hard} hard (+ {adv} advisory)");
         1
     }
 }

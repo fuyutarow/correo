@@ -36,6 +36,16 @@
         }
       }
     },
+    "rhetoric": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metaphor-lexicon": {
+          "type": "string",
+          "description": "装飾メタファー語彙表の path（TSV: 語幹<TAB>書き換え指示・# 行は無視・相対 path は correo.toml の場所基準）。語彙は機構でなく data — 裁定記録は file 内 comment に同居する。未指定なら exe 相対 share/correo/metaphor-lex.tsv、無ければ metaphor-density 規則は沈黙。"
+        }
+      }
+    },
     "readability": {
       "type": "object",
       "additionalProperties": false,

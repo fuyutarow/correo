@@ -27,6 +27,18 @@ pub struct Config {
     pub readability: ReadabilityCfg,
     #[serde(default)]
     pub coinage: CoinageCfg,
+    #[serde(default)]
+    pub rhetoric: RhetoricCfg,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct RhetoricCfg {
+    /// メタファー語彙表（TSV: 語幹<TAB>書き換え指示・# 行は無視）。語彙は機構でなく data —
+    /// binary に hardcode しない（正本 lexicons/metaphor-lex.tsv・裁定記録が comment で同居）。
+    /// 相対 path は correo.toml の場所基準。未指定なら exe 相対 share/correo/metaphor-lex.tsv
+    /// を探し、無ければ metaphor-density 規則は沈黙（coinage の辞書・corpus と同じ規約）。
+    pub metaphor_lexicon: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Default)]

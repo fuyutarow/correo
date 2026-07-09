@@ -45,10 +45,14 @@ pub fn scan_paragraphs(text: &str, exempt: &HashSet<String>) -> Vec<Para> {
     //   (1) 識別子＝`_` か数字を含む token（collective_only_residual・P3b・c_adaptive_pair）。
     //   (2) ALLCAPS 略語＝HTTP/API/YKL/PPT/RDM/CRB/JW 等の domain 略語（構造で判る・列挙不要＝融通）。
     //   (3) allow-list 登録語＝exempt（登録制・HTTP/JSON 等は allow-list 登録で「もちろんそのまま」）。
+    //   (4) 数式・列挙の破片＝1 字 token（O(n²) の o と n・変数 x）と小文字ローマ数字（(i)(ii)(iii)）。
     // dogfooding 2026-07-06: (1) で ledger 誤検出、(2)(3) で domain 語誤検出（precision ~5%）を潰す。
+    // dogfooding 2026-07-09: (4) は Bitter-Lesson.md 実走で発見 — 数式の破片が密度を水増しした。
     let latin = Regex::new(r"[a-zA-Z][a-zA-Z0-9_-]*").unwrap();
     let is_identifier = |t: &str| t.contains('_') || t.chars().any(|c| c.is_ascii_digit());
     let is_acronym = |t: &str| t.len() >= 2 && t.chars().all(|c| c.is_ascii_uppercase());
+    let is_math_fragment =
+        |t: &str| t.chars().count() < 2 || t.chars().all(|c| matches!(c, 'i' | 'v' | 'x'));
     let ja = Regex::new(r"[\p{Hiragana}\p{Katakana}\p{Han}]").unwrap();
     let mut out = Vec::new();
     for u in crate::prose::prose_units(text) {
@@ -61,6 +65,7 @@ pub fn scan_paragraphs(text: &str, exempt: &HashSet<String>) -> Vec<Para> {
             .map(|m| m.as_str())
             .filter(|t| !is_identifier(t) && !is_acronym(t)) // 識別子・ALLCAPS 略語は散文でない
             .map(|t| t.to_lowercase())
+            .filter(|t| !is_math_fragment(t)) // 数式・列挙の破片は散文でない
             .filter(|t| !exempt.contains(t)) // allow-list 登録の domain 語は exempt（登録制）
             .collect();
         let density = toks.len() as f64 * 100.0 / ja_n as f64;
@@ -89,7 +94,7 @@ pub fn codemix(threshold: f64, files: &[String], exempt: &HashSet<String>) -> i3
             if p.density >= threshold {
                 hot += 1;
                 println!(
-                    "⚑ {label}L{}: {:.0} latin/100字 (JA {} chars)",
+                    "⚑ {label}L{}: {:.0} latin per 100 JA chars (JA {} chars)",
                     p.line, p.density, p.ja_chars
                 );
                 println!(
@@ -114,10 +119,12 @@ pub fn codemix(threshold: f64, files: &[String], exempt: &HashSet<String>) -> i3
         }
     }
     if hot == 0 {
-        println!("CODEMIX PASS: latin 密度 {threshold:.0}/100字 超の段落なし（advisory）");
+        println!(
+            "CODEMIX PASS: no paragraph above {threshold:.0} latin per 100 JA chars (advisory)"
+        );
     } else {
         println!(
-            "CODEMIX: {hot} hot 段落（advisory=MIX・LLM-judge が 3-way 分類→gratuitous のみ修正/prh 焼き）"
+            "CODEMIX: {hot} hot paragraphs (advisory — judge triages each token: domain / mention / gratuitous→rewrite)"
         );
     }
     0 // advisory：常に exit 0
@@ -278,6 +285,21 @@ mod tests {
         assert!(paras[0].vocab.contains(&"proseword".to_string()));
         assert!(paras[1].vocab.contains(&"bulletword".to_string()));
         assert_eq!(paras[1].line, 3);
+    }
+
+    #[test]
+    fn math_fragments_are_not_prose_tokens() {
+        // O(n²) の o/n・変数 x・列挙 (i)(ii)(iii) は数式・記号の破片 — 散文の code-mix でない
+        // （Bitter-Lesson.md 実走で発見した密度水増し・2026-07-09）。実語 word は残ること。
+        let exempt = HashSet::new();
+        let text = format!("{} O(n) の x と (i) (ii) (iii) を word で論じる。", ja(45));
+        let paras = scan_paragraphs(&text, &exempt);
+        assert_eq!(
+            paras[0].vocab,
+            vec!["word".to_string()],
+            "破片が語彙に混入: {:?}",
+            paras[0].vocab
+        );
     }
 
     #[test]

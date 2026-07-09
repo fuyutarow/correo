@@ -34,7 +34,7 @@ pub fn scan(text: &str) -> Vec<Finding> {
                 line: i + 1,
                 word: format!("{verb}{joint}"),
                 msg: format!(
-                    "「{verb}{joint}」— 英語動詞＋{}のカルク候補。日本語動詞へ書き直すか、judge が定着語と裁定したら allow へ",
+                    "「{verb}{joint}」 — english verb spliced onto 「{}」 (calque candidate) — write the Japanese verb, or add to allow if judge rules it established",
                     if joint.starts_with("され") { "される" } else { "する" }
                 ),
             });

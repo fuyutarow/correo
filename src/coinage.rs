@@ -343,21 +343,21 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
         .map(|h| {
             let surfs: Vec<&str> = h.components.iter().map(|s| s.as_str()).collect();
             format!(
-                "{}:{}: 「{}」は辞書見出し語でない複合 (components={surfs:?}) — 標準語へ書き直すか allow-list（--allow）に登録",
+                "{}:{}: 「{}」 is not a dictionary headword (components={surfs:?}) — rewrite in standard terms, or register in allow-list (--allow)",
                 h.file, h.line, h.compound
             )
         })
         .collect();
 
     if violations.is_empty() {
-        println!("COINAGE PASS: 辞書外複合語なし (allowlist {allow_len} 語)");
+        println!("COINAGE PASS: no out-of-dictionary compounds (allowlist {allow_len} entries)");
         Ok(0)
     } else if advisory {
         // locate 層（advisory）: 候補を報告し judge の 3-way 分類へ回す。blocking は
         // prh residue（確定造語）が担う — strict tier の実測 FP（語/層/例 tail 等の
         // 生産的接尾辞様に辞書が接尾辞語義を持たない精度天井・2026-07-06）による裁定。
         println!(
-            "COINAGE CANDIDATES: {} 件（advisory・judge が 自然/allow-list 登録/確定造語→prh を分類）",
+            "COINAGE CANDIDATES: {} (advisory — judge triages: natural / register in allow / confirmed coinage → deny)",
             violations.len()
         );
         for v in &violations {
@@ -366,7 +366,7 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
         Ok(0)
     } else {
         println!(
-            "COINAGE FAIL: {} 件 (判定=Sudachi C 単位見出し語 membership)",
+            "COINAGE FAIL: {} (criterion = Sudachi mode-C headword membership)",
             violations.len()
         );
         for v in &violations {
