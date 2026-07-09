@@ -128,20 +128,20 @@ module 分割は性質で切り、出自はこの表が規則ごとに記す。�
 
 ## install
 
-formula は correo repo 内（`Formula/correo.rb`）が正本。repo の名前が `homebrew-*` でないため tap は URL 明示形で足す:
+formula は correo repo 内（`Formula/correo.rb`）が正本。プリビルド binary を release から取るのでコンパイル不要（数秒）。repo 名が `homebrew-*` でないため tap は URL 明示形で足す:
 
 ```sh
 brew tap fuyutarow/correo https://github.com/fuyutarow/correo.git
-brew install fuyutarow/correo/correo
+brew install fuyutarow/correo/correo   # 対応: macOS arm64/x86_64・linux x86_64
 ```
 
-coinage 用の Sudachi 辞書（system.dic ほか）は formula が同梱し、binary が exe 相対で解決するため **out-of-box** で動く。
-
-cargo から入れる場合（辞書は別途 `$CORREO_DICT_DIR` か `--dict-dir` で指定）:
+binary は ~1.8MB と小さい — Sudachi 辞書（~207MB）は同梱せず **CLI が管理**する。coinage（造語検出）を使うときだけ、初回に一度:
 
 ```sh
-cargo install --git https://github.com/fuyutarow/correo
+correo setup   # ~/.cache/correo へ辞書を取得。以後は環境変数なしで coinage が動く
 ```
+
+辞書不要の検出器（codemix / calque / readability / rhetoric / structure / density）は setup なしで動く。ソースから入れる場合は `cargo install --git https://github.com/fuyutarow/correo`（`--features coinage` 既定）。
 
 ## 使い方
 

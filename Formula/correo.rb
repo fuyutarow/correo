@@ -1,21 +1,33 @@
 class Correo < Formula
   desc "Lint for Japanese LLM slop: code-mixing density and dictionary coinage"
   homepage "https://github.com/fuyutarow/correo"
-  # source-build formula（brew が cargo でコンパイル）。sha256 は release v0.2607.0 の
-  # source tarball を実測（2026-07-09）。プリビルド binary は release.yml が Release に置く。
-  url "https://github.com/fuyutarow/correo/archive/refs/tags/v0.2607.0.tar.gz"
-  sha256 "8a8e66ae834d1f09223be3c366529c32221f8410dd397b0bbfe29ff70a066ddf"
+  version "0.2607.1"
   license any_of: ["MIT", "Apache-2.0"]
-  head "https://github.com/fuyutarow/correo.git", branch: "main"
 
-  depends_on "rust" => :build
+  # プリビルド binary を release から取得する（コンパイル不要 = 数秒で入る）。binary は極小
+  # (~1.8MB) — Sudachi 辞書 (~207MB) は同梱せず CLI が管理する（`correo setup`）。
+  # release.yml が tag 契機で 3 target を build・upload。sha256 は v0.2607.1 の資産を実測 (2026-07-09)。
+  on_macos do
+    on_arm do
+      url "https://github.com/fuyutarow/correo/releases/download/v0.2607.1/correo-v0.2607.1-aarch64-apple-darwin.tar.gz"
+      sha256 "54295d04fd03a7bfd03aa6b09f2210fa9943850d596cb45077fce0ee028ebd99"
+    end
+    on_intel do
+      url "https://github.com/fuyutarow/correo/releases/download/v0.2607.1/correo-v0.2607.1-x86_64-apple-darwin.tar.gz"
+      sha256 "8837cb4019dac7a8a68e08bfe94eff3d1515da353e0cc0f192ea129692d3611c"
+    end
+  end
+  on_linux do
+    on_intel do
+      url "https://github.com/fuyutarow/correo/releases/download/v0.2607.1/correo-v0.2607.1-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "9eaf05a0f1db00f4f7c34991726142beae4a3b07d3dca31d1a93fa52e2f254d2"
+    end
+  end
 
   def install
-    # coinage feature を明示（既定 default だが依存を確実に引き込む）。
-    system "cargo", "install", "--features", "coinage", *std_cargo_args
-    # メタファー語彙表（data・小さい）は同梱。binary は exe 相対 (bin/../share/correo/) で解決する。
-    # Sudachi 辞書（~207MB）は同梱しない — CLI が管理する（`correo setup` が ~/.cache へ取得）。
-    (share/"correo").install "lexicons/metaphor-lex.tsv"
+    bin.install "correo"
+    # メタファー語彙表（data）— binary は exe 相対 (bin/../share/correo/) で解決する。
+    (share/"correo").install "metaphor-lex.tsv"
   end
 
   def caveats
@@ -30,7 +42,6 @@ class Correo < Formula
 
   test do
     assert_match "correo", shell_output("#{bin}/correo --version")
-    # メタファー語彙表が exe 相対で同梱・解決されるか。
     assert_path_exists share/"correo/metaphor-lex.tsv"
     # codemix は辞書不要（純 locate）— binary が動く実証。
     assert_match "CODEMIX", pipe_output("#{bin}/correo codemix", "framework を混ぜた日本語の段落。\n")
