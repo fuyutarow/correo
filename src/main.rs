@@ -195,6 +195,15 @@ fn main() {
                 exit(2);
             }
 
+            // deny = 組み込み slop 常套句（出荷時の意見のある既定）∪ ユーザの確定裁定。
+            // allow に語を書けばどちらも個別解除できる（組み込みへの拒否権はユーザが持つ）。
+            let allow_set: std::collections::HashSet<&str> =
+                cfg.allow.iter().map(String::as_str).collect();
+            let mut builtin_deny = correo::deny::builtin();
+            builtin_deny.retain(|w, _| !allow_set.contains(w.as_str()));
+            let mut user_deny = cfg.deny.clone();
+            user_deny.retain(|w, _| !allow_set.contains(w.as_str()));
+
             let mut findings: Vec<correo::report::Finding> = Vec::new();
             let mut fixed = 0usize;
             let mut sup: std::collections::HashMap<String, correo::suppress::Suppressions> =
@@ -220,7 +229,7 @@ fn main() {
                     }
                 }
                 let s = correo::suppress::scan(&text);
-                for (line, w, sugg) in correo::deny::scan(&text, &cfg.deny) {
+                for (line, w, sugg) in correo::deny::scan(&text, &user_deny) {
                     if s.hit(line, "deny", "denied-term") {
                         continue;
                     }
@@ -230,7 +239,23 @@ fn main() {
                         file: f.clone(),
                         line,
                         severity: "error",
-                        message: format!("「{w}」は確定した造語（deny 登録）— {sugg}"),
+                        message: format!("「{w}」は deny 登録語（judge の確定裁定）— {sugg}"),
+                        data: Some(serde_json::json!({ "word": w, "suggestion": sugg })),
+                    });
+                }
+                for (line, w, sugg) in correo::deny::scan(&text, &builtin_deny) {
+                    if s.hit(line, "deny", "slop-phrase") {
+                        continue;
+                    }
+                    findings.push(correo::report::Finding {
+                        detector: "deny",
+                        rule: "slop-phrase".into(),
+                        file: f.clone(),
+                        line,
+                        severity: "error",
+                        message: format!(
+                            "「{w}…」は LLM 常套句（組み込み deny）— {sugg}（解除は allow へ）"
+                        ),
                         data: Some(serde_json::json!({ "word": w, "suggestion": sugg })),
                     });
                 }

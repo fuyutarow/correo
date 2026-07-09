@@ -12,7 +12,8 @@
 
 **木下原則の検査**（機械が言い切れる判定だけ — HARD）
 
-- **kinoshita** — 一文の長さ・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖・「の」3 連鎖・冗長表現（`することができ`→`できる`）。文頭接続詞の連発（また/さらに/そして…）は advisory（LLM が生成した文の指紋・報告のみ）。
+- **kinoshita** — 一文の長さ・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖・「の」3 連鎖・冗長表現（`することができ`→`できる`）。advisory（報告のみ）の構造規則: 文頭接続詞の連発・同じ書き出しが続く文・「太字見出し＋コロン」が並ぶ箇条書き — いずれも LLM が生成した文の指紋。
+- **slop-phrase（組み込み deny）** — LLM 常套句（`架け橋となる`・`可能性を解き放つ`・`いかがでしたか` 等）を出荷時の裁定として HARD で弾く。Vale の style package 配布に相当する「意見のある既定」— 解除はその語を allow に書く（拒否権は利用者にある）。
 
 slop の検出器（codemix / coinage / calque）は候補を flag するだけで判定しない。domain か gratuitous かの裁定は呼び出し側（LLM-judge か人）が下す。kinoshita だけは機械判定が最終（blocking 可）。
 
@@ -39,6 +40,19 @@ correo check --format json | your-judge --schema three-way.json
 ## 位置づけ — Vale の DevX を日本語で
 
 英語圏の文章 lint は [Vale](https://vale.sh)（Go 製・単一バイナリ・マークアップ対応・オフライン）が事実上の標準だが、**Vale は形態素解析を持たず日本語には機能しない**。日本語の定番は textlint（Node.js 製・JSON 設定・プラグイン構成）だった。correo はこの隙間に立つ。Vale と同じ配布の哲学 — 単一バイナリ・オフライン・マークアップ対応・設定 1 ファイル・語彙規則をコードなしで書ける — を日本語で提供する。形態素解析は Sudachi が、文脈の判定は LLM-judge への構造化出力が受け持つ。
+
+Vale の規則類型との対応（何が在り、何が roadmap か）:
+
+| Vale extension point | correo |
+|---|---|
+| substitution / existence | `[deny]`（値=書き直し案）＋ 組み込み slop-phrase |
+| spelling（語彙照合） | coinage（形態素＋辞書＋corpus 照合 — わかち書きの無い日本語版） |
+| repetition | opener-repetition・connector-pileup |
+| occurrence（頻度制限） | ぼかし連発・指示語連鎖・「の」3 連鎖 |
+| readability | 文長・読点の数（日本語の実効指標） |
+| conditional（用語の初出定義） | roadmap |
+| capitalization（見出し体裁） | roadmap（体言止め統一 等） |
+| Packages（style 配布） | 組み込み既定＋`[extends]` は roadmap |
 
 ## roadmap — 木下原則の被覆計画
 

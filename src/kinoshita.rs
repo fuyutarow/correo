@@ -88,6 +88,90 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
         }
     }
 
+    // 構造 slop（LLM の定型 layout・2026-07-09 「slop パターンは限定的」の議論より）:
+    // 「- **見出し**: 説明」形式の箇条書きが 3 連続 — 生成文の指紋（革新性：/効率性： の列）。
+    let bullet_tpl = Regex::new(r"^[ \t]*[-*+][ \t]\*\*[^*]+\*\*[:：]").unwrap();
+    let defenced = crate::prose::strip_fences(text);
+    let mut tpl_run: Option<(usize, usize)> = None; // (開始行, 本数)
+    for (i, raw) in defenced.lines().enumerate() {
+        if bullet_tpl.is_match(raw) {
+            match tpl_run.as_mut() {
+                Some((_, n)) => *n += 1,
+                None => tpl_run = Some((i + 1, 1)),
+            }
+        } else {
+            if let Some((line, n)) = tpl_run.take()
+                && n >= 3
+            {
+                v.push(Violation {
+                    line,
+                    rule: "bullet-template",
+                    severity: Severity::Advisory,
+                    msg: format!(
+                        "太字見出し＋コロンの箇条書きが {n} 連続 — LLM の定型 layout。散文か表を検討"
+                    ),
+                });
+            }
+        }
+    }
+    if let Some((line, n)) = tpl_run.take()
+        && n >= 3
+    {
+        v.push(Violation {
+            line,
+            rule: "bullet-template",
+            severity: Severity::Advisory,
+            msg: format!(
+                "太字見出し＋コロンの箇条書きが {n} 連続 — LLM の定型 layout。散文か表を検討"
+            ),
+        });
+    }
+
+    // 同じ書き出しの文の連続（3 文以上）— LLM 生成文のもう一つの指紋。文頭接続詞
+    // （connector-pileup が担当）と重複しないよう、接続詞書き出しは対象外。
+    let opener_of = |s: &str| -> String {
+        s.chars()
+            .take_while(|c| !matches!(c, '、' | '。' | '！' | '？'))
+            .take(6)
+            .collect()
+    };
+    let mut op_run: Option<(String, usize, usize)> = None; // (書き出し, 開始行, 本数)
+    for (line, s) in &sents {
+        let o = opener_of(s);
+        // bullet 行は対象外: 「- **Tier 1**…」「- **Tier 2**…」の列は正当な構造で、
+        // 接頭が揃うのは当然（2026-07-09 dogfood で実測した FP class）。
+        let is_bullet = matches!(s.chars().next(), Some('-' | '*' | '+' | '・' | '#'));
+        let eligible = o.chars().count() >= 2 && !connector.is_match(s) && !is_bullet;
+        match op_run.as_mut() {
+            Some((prev, _, n)) if eligible && *prev == o => *n += 1,
+            _ => {
+                if let Some((prev, start, n)) = op_run.take()
+                    && n >= 3
+                {
+                    v.push(Violation {
+                        line: start,
+                        rule: "opener-repetition",
+                        severity: Severity::Advisory,
+                        msg: format!("同じ書き出し「{prev}…」が {n} 文連続 — 構文を変える"),
+                    });
+                }
+                if eligible {
+                    op_run = Some((o, *line, 1));
+                }
+            }
+        }
+    }
+    if let Some((prev, start, n)) = op_run.take()
+        && n >= 3
+    {
+        v.push(Violation {
+            line: start,
+            rule: "opener-repetition",
+            severity: Severity::Advisory,
+            msg: format!("同じ書き出し「{prev}…」が {n} 文連続 — 構文を変える"),
+        });
+    }
+
     for (line, s) in &sents {
         let n = s.chars().count();
         if n > max_sentence {
@@ -405,6 +489,36 @@ mod tests {
             scan(ok, 100, 4)
                 .iter()
                 .all(|x| x.rule != "connector-pileup")
+        );
+    }
+
+    #[test]
+    fn flags_bullet_template_run_of_three() {
+        // 「- **見出し**: 説明」×3 連続 = LLM の定型 layout（革新性：/効率性： の列）。
+        let bad = "- **革新性**: 高い。\n- **効率性**: 速い。\n- **拡張性**: 広い。";
+        let hits: Vec<_> = scan(bad, 100, 4)
+            .into_iter()
+            .filter(|x| x.rule == "bullet-template")
+            .collect();
+        assert_eq!(hits.len(), 1);
+        assert!(matches!(hits[0].severity, Severity::Advisory));
+        let ok = "- **革新性**: 高い。\n- **効率性**: 速い。";
+        assert!(scan(ok, 100, 4).iter().all(|x| x.rule != "bullet-template"));
+    }
+
+    #[test]
+    fn flags_same_opener_three_sentences() {
+        let bad = "本製品は、速い。本製品は、安い。本製品は、強い。";
+        assert!(
+            scan(bad, 100, 4)
+                .iter()
+                .any(|x| x.rule == "opener-repetition")
+        );
+        let ok = "本製品は、速い。本製品は、安い。";
+        assert!(
+            scan(ok, 100, 4)
+                .iter()
+                .all(|x| x.rule != "opener-repetition")
         );
     }
 

@@ -4,6 +4,29 @@
 // fence 内・inline code 内は言及なので対象外（allow/coinage と同じ規約）。
 use std::collections::HashMap;
 
+/// 組み込みの slop 常套句（LLM の日本語が高頻度で混入させる定型 — 「実在するが使わない」の
+/// 裁定を出荷時に同梱する。Vale が Google/Microsoft style を package で配るのと同型の
+/// 「意見のある既定」）。個別解除は correo.toml の allow にその語を書く。
+/// 選定基準は精度最優先: 人間の実用文にほぼ出現しない定型だけを載せ、
+/// シームレス/徹底解説 のような「人間も使う」語は載せない（誤爆が信頼を殺す）。
+/// pattern は語幹で持つ（活用差を吸収: 架け橋となる/なります）。
+pub const BUILTIN: &[(&str, &str)] = &[
+    ("可能性を解き放", "具体的に何ができるようになるかを書く"),
+    ("架け橋とな", "具体的な機能・役割を書く"),
+    ("世界へようこそ", "導入の常套句 — 内容から始める"),
+    ("いかがでした", "ブログ定型の結び — 要点の再掲で締める"),
+    ("ゲームチェンジャー", "何がどう変わるかを書く"),
+    ("魔法のよう", "仕組みを書く"),
+];
+
+/// BUILTIN を HashMap で返す（cfg.deny と併合し、allow で個別解除するのは呼び出し側）。
+pub fn builtin() -> HashMap<String, String> {
+    BUILTIN
+        .iter()
+        .map(|(w, s)| (w.to_string(), s.to_string()))
+        .collect()
+}
+
 /// text から deny 語の出現を (行, 語, 書き直し案) で列挙する。
 pub fn scan(text: &str, deny: &HashMap<String, String>) -> Vec<(usize, String, String)> {
     if deny.is_empty() {
@@ -44,5 +67,16 @@ mod tests {
     fn mentions_in_fence_and_inline_code_are_not_hits() {
         let text = "`機械床` は言及。\n\n```\n機械床のコード例\n```";
         assert!(scan(text, &deny()).is_empty(), "言及が deny に落ちた");
+    }
+
+    #[test]
+    fn builtin_slop_phrases_hit_with_stem_matching() {
+        let b = builtin();
+        // 語幹 match: 架け橋となります の活用形も捕まる。
+        let hits = scan("本機能は両者の架け橋となります。", &b);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].1, "架け橋とな");
+        // 常套句を含まない実用文は無音。
+        assert!(scan("本機能は二つの系を接続する。", &b).is_empty());
     }
 }

@@ -27,7 +27,8 @@ allow = [
   "辞書見出し語", "辞書外複合", "語彙表", "使用例", "安全側",
 ]
 
-# deny ＝ judge の確定裁定の永続 cache。検出は coinage が proactive に行う（advisory）が、
+# deny ＝ judge の確定裁定の永続 cache。組み込みの LLM 常套句（deny/slop-phrase・架け橋となる 等）
+# は binary 同梱 — 解除したい語は allow に書く。検出は coinage が proactive に行う（advisory）が、
 # 「機械床 は造語・使用例 は自然」の最終判定は意味の領分＝judge にしかできない
 # （有限語彙表では生産的複合と区別不能 — full lex 387万語で 使用例=0 を実測・2026-07-09）。
 # judge が却下した語をここへ書くと、以後の再侵入は HARD（exit 1）で機械が阻止する。
