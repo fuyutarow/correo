@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "correo.toml",
+  "description": "correo（日本語実用文の lint）の設定。correo check が cwd から根へ辿って最初の correo.toml を自動発見する。優先順位は CLI flag > correo.toml > 既定値。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "allow": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "judge（人か LLM）の裁定を経た許容語彙。codemix の除外と coinage の allow の共通源。登録は造語の逃げ場ではない — 書き直せる語は書き直し、一回きりの言及は <!-- correo-ignore --> で抑制する。"
+    },
+    "deny": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "確定した造語の禁止辞書（語 → 書き直しの案）。HARD＝exit 1 に数える。judge 裁定の第三バケツ: 自然→無視 / 使い続ける→allow / 確定造語→ここ。"
+    },
+    "codemix": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "threshold": {
+          "type": "number",
+          "default": 8.0,
+          "description": "地の文の latin/100字 密度の閾値。これ以上で advisory 候補として報告する。"
+        }
+      }
+    },
+    "kinoshita": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max-sentence": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 1,
+          "description": "一文の最大文字数。超えると HARD 違反（exit 1）。"
+        },
+        "max-ten": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 0,
+          "description": "一文の最大読点数。超えると HARD 違反（exit 1）。"
+        }
+      }
+    }
+  }
+}

@@ -36,6 +36,10 @@ correo check --format json | your-judge --schema three-way.json
   "summary": { "error": 1, "advisory": 1 } }
 ```
 
+## 位置づけ — Vale の DevX を日本語で
+
+英語圏の文章 lint は [Vale](https://vale.sh)（Go 製・単一バイナリ・マークアップ対応・オフライン）が事実上の標準だが、**Vale は形態素解析を持たず日本語には機能しない**。日本語の定番は textlint（Node.js 製・JSON 設定・プラグイン構成）だった。correo はこの隙間に立つ。Vale と同じ配布の哲学 — 単一バイナリ・オフライン・マークアップ対応・設定 1 ファイル・語彙規則をコードなしで書ける — を日本語で提供する。形態素解析は Sudachi が、文脈の判定は LLM-judge への構造化出力が受け持つ。
+
 ## roadmap — 木下原則の被覆計画
 
 - **Tier 1（HARD）** — 実装済み＝上記 kinoshita。
@@ -63,12 +67,19 @@ cargo install --git https://github.com/fuyutarow/correo
 ## 使い方
 
 ```sh
+# 設定の雛形を作る（無くても動く）
+correo init
+
 # これだけで動く: cwd 以下の *.md を全部検査（.gitignore 準拠・correo.toml を自動発見）
 correo check
 
-# 特定の file だけ / judge 連携（機械可読 JSON）
+# 機械的に安全な違反を直して書き戻す（現在: することができ→でき）
+correo check --write
+
+# 特定の file だけ / judge 連携（JSON）/ GitHub Actions の PR inline 注釈
 correo check draft.md
 correo check --format json | your-judge
+correo check --format github   # ::error / ::notice を emit — PR の該当行に注釈が付く
 
 # 低レベルの単体検出器（diff-ratchet 等の組み込み用）
 echo '本文に framework や pipeline を混ぜた段落。' | correo codemix --threshold 8
@@ -82,9 +93,11 @@ HARD 違反だけで、codemix と coinage(strict) は advisory（judge へ渡�
 
 ## 設定 — correo.toml（自動発見・無くても動く）
 
-`correo check` は cwd から根へ辿って最初の `correo.toml` を読む。優先順位は CLI flag > correo.toml > 既定値。
+`correo check` は cwd から根へ辿って最初の `correo.toml` を読む。優先順位は CLI flag > correo.toml > 既定値。形式が TOML なのは Rust 圏の慣習（Cargo.toml/mise.toml と同じ）に合わせた判断で、裁定理由をコメントで残せることが allow 運用の前提になっている。未知のキーは黙殺せずパースエラーにする（打ち間違いの黙殺は事故のもと）。エディタ補完・検証は先頭の `#:schema` directive（taplo / tombi が読む — biome.json の `$schema` と同じ役割）で効き、schema は `schemas/correo.schema.json` にある。
 
 ```toml
+#:schema https://raw.githubusercontent.com/fuyutarow/correo/main/schemas/correo.schema.json
+
 allow = [       # judge（人か LLM）の裁定を経た語だけを登録する — 造語の逃げ場にしない
   "correo",     # 製品名
   "ルー語",      # 俗称として定着（言い換えると通じない）
@@ -96,6 +109,11 @@ threshold = 8.0
 [kinoshita]
 max-sentence = 100
 max-ten = 4
+
+# 確定した造語の禁止（HARD・exit 1）。値は書き直しの案 — 一度書き直すと裁定した語の
+# 再侵入を機械が阻止する。judge 裁定の第三バケツ: 自然→無視 / 使い続ける→allow / 確定→deny。
+[deny]
+"機械床" = "「機械的に判定できる lint」など標準的な言い方へ書き直す"
 ```
 
 一回きりの言及は登録せず、その場で抑制する（biome-ignore と同じ役割の分担）:

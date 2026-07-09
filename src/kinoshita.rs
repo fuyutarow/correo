@@ -203,6 +203,47 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
     v
 }
 
+/// 機械的に安全な自動修正（`check --write`）。現在の対象: `することができ`→`でき`
+/// （実行することができます→実行できます）。意味を変え得る修正（二重否定・文体統一・文分割）
+/// は対象にしない — 安全に置換できる規則だけを増やす方針。
+/// fence 内・inline code 内は「言及」なので触らない（README の規則説明を壊さない）。
+/// 返り値は (修正後 text, 修正件数)。
+pub fn fix(text: &str) -> (String, usize) {
+    let mut out = String::with_capacity(text.len());
+    let mut n = 0usize;
+    let mut in_fence = false;
+    for (i, line) in text.lines().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            out.push_str(line);
+            continue;
+        }
+        if in_fence {
+            out.push_str(line);
+            continue;
+        }
+        // backtick で行を分割: 偶数 index = code 外（置換対象）、奇数 = inline code 内。
+        for (j, seg) in line.split('`').enumerate() {
+            if j > 0 {
+                out.push('`');
+            }
+            if j % 2 == 0 {
+                n += seg.matches("することができ").count();
+                out.push_str(&seg.replace("することができ", "でき"));
+            } else {
+                out.push_str(seg);
+            }
+        }
+    }
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    (out, n)
+}
+
 /// CLI entry。Hard violation があれば exit 1（--advisory で 0）。Advisory 規則は報告のみで
 /// exit に数えない（MIX tier — judge/人の確認へ回す）。
 pub fn run_kinoshita(args: KinoshitaArgs) -> i32 {
@@ -365,6 +406,21 @@ mod tests {
                 .iter()
                 .all(|x| x.rule != "connector-pileup")
         );
+    }
+
+    #[test]
+    fn fix_rewrites_verbose_potential_but_not_mentions() {
+        // --write の安全性: 地の文は直す・inline code / fence 内の「言及」は触らない。
+        let (out, n) = fix("同じ結果を再現することができます。");
+        assert_eq!(out, "同じ結果を再現できます。");
+        assert_eq!(n, 1);
+        let (out, n) = fix("規則の説明（`することができ`→`でき`）は言及。");
+        assert_eq!(n, 0, "inline code 内を書き換えた");
+        assert!(out.contains("`することができ`"));
+        let (out, n) = fix("```\nすることができます\n```\n本文ですることができます。\n");
+        assert_eq!(n, 1, "fence 内を数えた/本文を見逃した");
+        assert!(out.contains("```\nすることができます\n```"));
+        assert!(out.contains("本文でできます。"));
     }
 
     #[test]

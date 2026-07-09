@@ -1,4 +1,7 @@
+#:schema ./schemas/correo.schema.json
 # correo.toml — correo 自身の設定（dogfood）。`correo check` が cwd から根へ辿って自動発見する。
+# 上の #:schema は taplo / tombi（TOML の language server）が読む directive — biome.json の
+# "$schema" と同じ役割で、エディタ補完と検証が効く（correo 自身は無視する・ただのコメント）。
 #
 # allow への登録は judge（人か LLM）の裁定を経た語だけ。登録は造語の逃げ場ではない —
 # 書き直せる語は書き直す。撤回の記録（2026-07-09）: 機械床・判定床・木下軸・行群・層別・家造語・
@@ -12,13 +15,24 @@ allow = [
   "slop", "locate", "judge", "llm-judge", "advisory", "blocking", "severity",
   "finding", "schema", "structured output", "allow-list", "latin", "code-switching",
   "domain", "pinned", "gratuitous", "tier", "proxy", "flag", "emit",
-  "fence", "inline", "bullet", "exit", "output", "code",
+  "fence", "inline", "bullet", "exit", "output", "code", "cwd", "directive",
+  # 他製品・形式の名前（README が言及する）
+  "biome", "taplo", "tombi", "cargo", "mise", "rust", "toml", "json",
+  "vale", "textlint", "node", "js", "go", "lint",
   # 書き換えずに使うと裁定した語（俗称として定着・言い換えると通じない）
   "ルー語", "ルー語密度",
   # 実在する複合語だが Sudachi の C 単位に無い語（strict の既知の誤検出）
   "日本語実用文", "実用文", "見出し語", "混種語", "登録語", "生成文", "字未満",
   "辞書見出し語", "辞書外複合",
 ]
+
+# 確定した造語（judge に却下され書き直した語）— 再侵入を機械が阻止する ratchet。
+[deny]
+"機械床" = "「機械的に判定できる lint」など標準的な言い方へ書き直す"
+"判定床" = "「判定の条件」へ書き直す"
+"木下軸" = "「木下原則の検査」へ書き直す"
+"家造語" = "「独自の造語」へ書き直す"
+"行群" = "「まとまり」へ書き直す"
 
 [codemix]
 threshold = 8.0

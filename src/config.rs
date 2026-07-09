@@ -1,6 +1,11 @@
-// config.rs — correo.toml の自動発見（biome.json 方式: 引数ゼロで設定が効く）。
+// config.rs — correo.toml の自動発見。
+// Biome から借りたのは【機構】（自動発見・引数ゼロで設定が効く・CLI flag > 設定 > 既定の優先順位）
+// であって file 形式ではない — Biome は biome.json/biome.jsonc（JSONC・自前 parser）、correo は
+// Rust 圏の母語である TOML（Cargo.toml/rustfmt.toml/mise.toml と同じ）。コメントが言語仕様に
+// あるため、allow の「裁定理由をコメントで残す」運用が標準機能で成立する（JSONC はこれを
+// 得るために Biome が parser を自作した）。typo 安全は deny_unknown_fields が担い、エディタ
+// 補完は taplo/tombi 向け JSON Schema の配布で将来対応（roadmap）。
 // cwd から根へ辿って最初の correo.toml を読む。無ければ既定値 — 設定ファイルは必須にしない。
-// 優先順位は CLI flag > correo.toml > 組み込み既定（解決は main 側）。
 // allow は「judge の裁定を経た語」の登録先 — 一回きりの言及は inline 抑制（suppress.rs）で
 // 逃がし、registry を太らせない。
 use serde::Deserialize;
@@ -12,6 +17,10 @@ pub struct Config {
     /// 裁定済みの許容語彙（codemix の exempt と coinage の allow の共通源）。
     #[serde(default)]
     pub allow: Vec<String>,
+    /// 確定した造語の禁止辞書（語 → 書き直しの案）。HARD＝exit 1 に数える。
+    /// judge の 3-way 裁定の第三バケツ — 自然→無視 / 使い続ける→allow / 確定造語→ここ。
+    #[serde(default)]
+    pub deny: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub codemix: CodemixCfg,
     #[serde(default)]
@@ -57,6 +66,8 @@ mod tests {
         let cfg: Config = toml::from_str(
             r#"
 allow = ["ルー語", "slop"]
+[deny]
+"機械床" = "標準的な言い方へ書き直す"
 [codemix]
 threshold = 6.0
 [kinoshita]
@@ -65,6 +76,7 @@ max-sentence = 90
         )
         .expect("parse");
         assert_eq!(cfg.allow.len(), 2);
+        assert_eq!(cfg.deny.len(), 1);
         assert_eq!(cfg.codemix.threshold, Some(6.0));
         assert_eq!(cfg.kinoshita.max_sentence, Some(90));
         assert_eq!(cfg.kinoshita.max_ten, None);

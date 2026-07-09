@@ -11,6 +11,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 enum Format {
     Text,
     Json,
+    /// GitHub Actions の workflow command（PR の該当行に inline 注釈が付く）
+    Github,
 }
 
 #[derive(Parser)]
@@ -54,9 +56,14 @@ enum Command {
         /// 出力形式（text=人向け / json=judge 連携・機械可読）
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
+        /// 機械的に安全な修正を適用して書き戻す（現在: `することができ`→`でき`）
+        #[arg(long)]
+        write: bool,
         /// 対象 file（省略時: cwd 以下の *.md を .gitignore 準拠で全走査）
         files: Vec<String>,
     },
+    /// correo.toml の雛形を生成する（既にあれば何もしない）。
+    Init,
     /// 木下是雄 HARD 層（文長・読点過多・文体混在・慣用二重否定・ぼかし連発・指示語連鎖）。
     Kinoshita {
         /// 一文の最大文字数
@@ -93,6 +100,27 @@ enum Command {
     },
 }
 
+const INIT_TEMPLATE: &str = r#"#:schema https://raw.githubusercontent.com/fuyutarow/correo/main/schemas/correo.schema.json
+# correo の設定。`correo check` が cwd から根へ辿って自動発見する。無くても既定値で動く。
+
+# judge（人か LLM）の裁定を経た語だけを登録する — 造語の逃げ場にしない。
+# 一回きりの言及は <!-- correo-ignore --> で行単位に抑制する。
+allow = [
+  # "ルー語",   # 例: 俗称として定着（言い換えると通じない）
+]
+
+# 確定した造語の禁止（HARD・exit 1）。値は書き直しの案。
+[deny]
+# "機械床" = "「機械的に判定できる」等へ書き直す"
+
+[codemix]
+threshold = 8.0
+
+[kinoshita]
+max-sentence = 100
+max-ten = 4
+"#;
+
 fn main() {
     match Cli::parse().command {
         Command::Codemix {
@@ -108,12 +136,25 @@ fn main() {
                 .collect();
             exit(correo::codemix::codemix(threshold, &files, &exempt));
         }
+        Command::Init => {
+            let p = std::path::Path::new("correo.toml");
+            if p.exists() {
+                eprintln!("correo init: correo.toml は既にある — 何もしない");
+                exit(2);
+            }
+            std::fs::write(p, INIT_TEMPLATE).expect("correo.toml の書き込みに失敗");
+            println!(
+                "correo init: correo.toml を作成した（#:schema でエディタ補完が効く）。correo check で検査を開始"
+            );
+            exit(0);
+        }
         Command::Check {
             threshold,
             allow,
             max_sentence,
             max_ten,
             format,
+            write,
             files,
         } => {
             // biome check に倣う porcelain: 引数ゼロで動く・設定は correo.toml 自動発見・
@@ -155,17 +196,44 @@ fn main() {
             }
 
             let mut findings: Vec<correo::report::Finding> = Vec::new();
+            let mut fixed = 0usize;
             let mut sup: std::collections::HashMap<String, correo::suppress::Suppressions> =
                 std::collections::HashMap::new();
             for f in &files {
-                let text = match std::fs::read_to_string(f) {
+                let mut text = match std::fs::read_to_string(f) {
                     Err(e) => {
                         eprintln!("correo check: {f} 読込失敗: {e} (skip)");
                         continue;
                     }
                     Ok(t) => t,
                 };
+                if write {
+                    // 修正 → 書き戻し → 修正後 text を検査（直した違反は報告に残らない）
+                    let (out, n) = correo::kinoshita::fix(&text);
+                    if n > 0 {
+                        if let Err(e) = std::fs::write(f, &out) {
+                            eprintln!("correo check: {f} 書き込み失敗: {e}");
+                        } else {
+                            fixed += n;
+                            text = out;
+                        }
+                    }
+                }
                 let s = correo::suppress::scan(&text);
+                for (line, w, sugg) in correo::deny::scan(&text, &cfg.deny) {
+                    if s.hit(line, "deny", "denied-term") {
+                        continue;
+                    }
+                    findings.push(correo::report::Finding {
+                        detector: "deny",
+                        rule: "denied-term".into(),
+                        file: f.clone(),
+                        line,
+                        severity: "error",
+                        message: format!("「{w}」は確定した造語（deny 登録）— {sugg}"),
+                        data: Some(serde_json::json!({ "word": w, "suggestion": sugg })),
+                    });
+                }
                 for p in correo::codemix::scan_paragraphs(&text, &exempt) {
                     if p.density >= threshold && !s.hit(p.line, "codemix", "latin-density") {
                         findings.push(correo::report::Finding {
@@ -259,6 +327,23 @@ fn main() {
                     "{}",
                     serde_json::to_string_pretty(&report).expect("report serialize")
                 ),
+                Format::Github => {
+                    // GitHub Actions workflow command — PR の該当行へ inline 注釈（vale の
+                    // reviewdog 連携に相当する CI DevX を追加依存なしで）。message の % は
+                    // command 構文のため escape。
+                    for x in &report.findings {
+                        let level = if x.severity == "error" {
+                            "error"
+                        } else {
+                            "notice"
+                        };
+                        let msg = x.message.replace('%', "%25");
+                        println!(
+                            "::{level} file={},line={},title=correo {}/{}::{msg}",
+                            x.file, x.line, x.detector, x.rule
+                        );
+                    }
+                }
                 Format::Text => {
                     for x in &report.findings {
                         let tag = if x.severity == "advisory" {
@@ -274,11 +359,19 @@ fn main() {
                     let cfg_note = cfg_path
                         .map(|p| format!("・設定 {}", p.display()))
                         .unwrap_or_default();
+                    let fix_note = if fixed > 0 {
+                        format!("・fixed {fixed}")
+                    } else {
+                        String::new()
+                    };
                     if report.findings.is_empty() {
-                        println!("correo check: OK ({} files{cfg_note})", files.len());
+                        println!(
+                            "correo check: OK ({} files{fix_note}{cfg_note})",
+                            files.len()
+                        );
                     } else {
                         println!(
-                            "correo check: error {} / advisory {} ({} files{cfg_note})",
+                            "correo check: error {} / advisory {} ({} files{fix_note}{cfg_note})",
                             report.summary.error,
                             report.summary.advisory,
                             files.len()

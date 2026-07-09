@@ -15,6 +15,7 @@
 pub mod codemix;
 pub mod coinage;
 pub mod config;
+pub mod deny;
 pub mod kinoshita;
 pub mod prose;
 pub mod report;
