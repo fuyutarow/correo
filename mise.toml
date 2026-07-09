@@ -24,8 +24,8 @@ description = "release build（配布 binary）"
 run = "cargo build --release"
 
 [tasks."lint:self"]
-description = "dogfood: correo で README と登録簿自身を lint（allow-list=docs/vocab.md・kinoshita HARD が ratchet・coinage 新語は advisory に浮く。登録簿を検査対象から外すと登録簿に slop が湧く — 2026-07-09 家造語 の教訓）"
-run = "cargo run --quiet -- check --allow docs/vocab.md README.md docs/vocab.md"
+description = "dogfood: correo で repo 内の *.md を全部 lint（引数ゼロ＝walker・設定は correo.toml 自動発見。kinoshita HARD が ratchet・coinage の新語は advisory に浮いて裁定を待つ）"
+run = "cargo run --quiet -- check"
 
 # 集約 gate（CI 相当）。cargo check は入れない: clippy がコンパイル＋lint を兼ねる上位互換ゆえ重複。
 [tasks.check]

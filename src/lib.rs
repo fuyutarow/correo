@@ -1,4 +1,4 @@
-//! correo — 日本語実用文の lint: LLM slop ＋ 木下是雄の機械判定可能層。
+//! correo — 日本語実用文の lint: LLM slop ＋ 木下是雄の原則のうち機械的に判定できるもの。
 //!
 //! 二軸を検査する（事実性・hype は対象外）:
 //! 「slop」＝**言語の不自然さ**（機械が混ぜた非母語的な日本語）——
@@ -14,6 +14,8 @@
 //! kinoshita 軸だけは HARD（機械判定が最終）ゆえ blocking 可。
 pub mod codemix;
 pub mod coinage;
+pub mod config;
 pub mod kinoshita;
 pub mod prose;
 pub mod report;
+pub mod suppress;

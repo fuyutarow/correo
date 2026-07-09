@@ -1,0 +1,28 @@
+# correo.toml — correo 自身の設定（dogfood）。`correo check` が cwd から根へ辿って自動発見する。
+#
+# allow への登録は judge（人か LLM）の裁定を経た語だけ。登録は造語の逃げ場ではない —
+# 書き直せる語は書き直す。撤回の記録（2026-07-09）: 機械床・判定床・木下軸・行群・層別・家造語・
+# 機械判定可能層 は登録や本文使用が却下され、標準的な日本語へ書き直した。
+# 一回きりの言及は登録せず inline 抑制（<!-- correo-ignore -->）で逃がす。
+
+allow = [
+  # 製品・検出器の名前
+  "correo", "codemix", "coinage", "kinoshita", "calque", "sudachi", "prh",
+  # 分野の用語
+  "slop", "locate", "judge", "llm-judge", "advisory", "blocking", "severity",
+  "finding", "schema", "structured output", "allow-list", "latin", "code-switching",
+  "domain", "pinned", "gratuitous", "tier", "proxy", "flag", "emit",
+  "fence", "inline", "bullet", "exit", "output", "code",
+  # 書き換えずに使うと裁定した語（俗称として定着・言い換えると通じない）
+  "ルー語", "ルー語密度",
+  # 実在する複合語だが Sudachi の C 単位に無い語（strict の既知の誤検出）
+  "日本語実用文", "実用文", "見出し語", "混種語", "登録語", "生成文", "字未満",
+  "辞書見出し語", "辞書外複合",
+]
+
+[codemix]
+threshold = 8.0
+
+[kinoshita]
+max-sentence = 100
+max-ten = 4

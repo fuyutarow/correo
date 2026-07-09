@@ -1,6 +1,6 @@
 # correo
 
-日本語実用文の lint — LLM slop（言語の不自然さ）と、木下是雄『理科系の作文技術』の原則のうち**機械的に判定できる層**を検査する。**事実性・hype は対象外**。
+日本語実用文の lint — LLM slop（言語の不自然さ）と、木下是雄『理科系の作文技術』の原則のうち**機械的に判定できるもの**を検査する。**事実性・hype は対象外**。
 
 検出器は二系統:
 
@@ -21,7 +21,7 @@ slop の検出器（codemix / coinage / calque）は候補を flag するだけ�
 全 finding を構造化 JSON で emit する。severity は `error`（HARD・exit 1 に数える）と `advisory`（locate 候補）の二値。「木で縛る」の正しい適用先は散文でなく **judge の入出力** — correo が座標を渡し、judge は structured output（JSON schema 制約）で分類を返す:
 
 ```sh
-correo check --format json docs/*.md | your-judge --schema three-way.json
+correo check --format json | your-judge --schema three-way.json
 ```
 
 ```json
@@ -63,26 +63,50 @@ cargo install --git https://github.com/fuyutarow/correo
 ## 使い方
 
 ```sh
-# ルー語密度（file 無し = stdin）
+# これだけで動く: cwd 以下の *.md を全部検査（.gitignore 準拠・correo.toml を自動発見）
+correo check
+
+# 特定の file だけ / judge 連携（機械可読 JSON）
+correo check draft.md
+correo check --format json | your-judge
+
+# 低レベルの単体検出器（diff-ratchet 等の組み込み用）
 echo '本文に framework や pipeline を混ぜた段落。' | correo codemix --threshold 8
-
-# 造語（辞書外複合）
-echo '構造腕を書く。' | correo coinage --strict --advisory
-
-# allow-list（除外語彙）を注入（統制語彙の .md を渡す・複数可・coinage と同名 flag）
-correo codemix --allow vocab.md docs/*.md
-
-# 木下 HARD 床（既定: 一文 100 字・読点 4。--advisory で報告のみ＝exit 0）
+git diff -U0 | correo coinage --diff --strict --advisory
 correo kinoshita report.md
-
-# 全検出器を 1 コマンドで。blocking は kinoshita のみ（codemix=advisory・
-# coinage=strict 候補の advisory 報告・辞書が無ければ skip 明示）
-correo check --allow vocab.md docs/*.md
 ```
 
+`check` の指摘は `file:line: [検出器/規則] 説明` の一行形式。exit 1 になるのは kinoshita の
+HARD 違反だけで、codemix と coinage(strict) は advisory（judge へ渡す候補）として数える。
 `--no-default-features` でビルドすると coinage を外した純 codemix になる（Sudachi 依存なし）。
 
-## 出力
+## 設定 — correo.toml（自動発見・無くても動く）
+
+`correo check` は cwd から根へ辿って最初の `correo.toml` を読む。優先順位は CLI flag > correo.toml > 既定値。
+
+```toml
+allow = [       # judge（人か LLM）の裁定を経た語だけを登録する — 造語の逃げ場にしない
+  "correo",     # 製品名
+  "ルー語",      # 俗称として定着（言い換えると通じない）
+]
+
+[codemix]
+threshold = 8.0
+
+[kinoshita]
+max-sentence = 100
+max-ten = 4
+```
+
+一回きりの言及は登録せず、その場で抑制する（biome-ignore と同じ役割の分担）:
+
+```markdown
+<!-- correo-ignore -->
+直後の行の指摘は全部抑制される。
+規則名や検出器名で絞れる。 <!-- correo-ignore no-chain coinage -->
+```
+
+## 低レベル検出器の出力
 
 `codemix` は密度が閾値を超えた段落を `⚑ L{行}: N latin/100字` で列挙（常に exit 0・advisory）。`coinage --strict` は辞書外複合を候補列挙し、`--advisory` 無しなら違反時 exit 1。
 

@@ -10,7 +10,10 @@ use std::path::PathBuf;
 #[cfg_attr(not(feature = "coinage"), allow(dead_code))]
 pub struct CoinageArgs {
     pub dict_dir: Option<PathBuf>,
+    /// allow-list registry の file path 群（.md の表 / 素の語リスト）。
     pub allow: Vec<String>,
+    /// 語を直接注入する経路（correo.toml の allow — file を介さない）。
+    pub allow_words: Vec<String>,
     pub diff: bool,
     pub strict: bool,
     pub advisory: bool,
@@ -240,8 +243,9 @@ pub struct CoinageHit {
 pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
     let dict_dir = resolve_dict_dir(args.dict_dir.clone())
         .context("--dict-dir か CORREO_DICT_DIR か $HOME/.cache/correo が必要")?;
-    let engine = Coinage::new(&dict_dir, &args.allow)
+    let mut engine = Coinage::new(&dict_dir, &args.allow)
         .context("engine 初期化失敗（--dict-dir か $CORREO_DICT_DIR で Sudachi 辞書を指定）")?;
+    engine.allow.extend(args.allow_words.iter().cloned());
 
     let mut hits: Vec<CoinageHit> = Vec::new();
     let scan = |fname: &str, lineno: usize, line: &str, hits: &mut Vec<CoinageHit>| {
@@ -451,6 +455,7 @@ mod tests {
         let args = CoinageArgs {
             dict_dir: None,
             allow: vec![],
+            allow_words: vec![],
             diff: false,
             strict: true,
             advisory: true,

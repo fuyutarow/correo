@@ -37,25 +37,24 @@ enum Command {
         /// 対象 file（無指定=stdin）
         files: Vec<String>,
     },
-    /// 全検出器を一括実行（codemix=advisory・kinoshita=HARD・coinage=辞書があれば。biome check に倣う集約 gate）。
+    /// 全検出器を一括実行（引数ゼロで cwd 以下の *.md を走査・correo.toml 自動発見・inline 抑制対応）。
     Check {
-        /// codemix の密度閾値（latin / 100 JA字）
-        #[arg(long, default_value_t = 8.0)]
-        threshold: f64,
-        /// allow-list（codemix / coinage 共用・複数可）
+        /// codemix の密度閾値（latin / 100 JA字。既定 8・correo.toml で設定可）
+        #[arg(long)]
+        threshold: Option<f64>,
+        /// allow-list registry file の追加注入（correo.toml の allow が主経路・これは補助）
         #[arg(long)]
         allow: Vec<PathBuf>,
-        /// kinoshita: 一文の最大文字数
-        #[arg(long, default_value_t = 100)]
-        max_sentence: usize,
-        /// kinoshita: 一文の最大読点数
-        #[arg(long, default_value_t = 4)]
-        max_ten: usize,
-        /// 出力形式（text=人向け / json=Tier3 judge 界面・機械可読）
+        /// kinoshita: 一文の最大文字数（既定 100・correo.toml で設定可）
+        #[arg(long)]
+        max_sentence: Option<usize>,
+        /// kinoshita: 一文の最大読点数（既定 4・correo.toml で設定可）
+        #[arg(long)]
+        max_ten: Option<usize>,
+        /// 出力形式（text=人向け / json=judge 連携・機械可読）
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
-        /// 対象 file（stdin 不可 — 複数検出器が同じ入力を読むため file 指定必須）
-        #[arg(required = true)]
+        /// 対象 file（省略時: cwd 以下の *.md を .gitignore 準拠で全走査）
         files: Vec<String>,
     },
     /// 木下是雄 HARD 層（文長・読点過多・文体混在・慣用二重否定・ぼかし連発・指示語連鎖）。
@@ -117,125 +116,134 @@ fn main() {
             format,
             files,
         } => {
-            // 1 コマンド＝全 gate。blocking は kinoshita（HARD 床）のみ。codemix は advisory、
-            // coinage は strict+advisory（locate 層 — 非 strict の列挙は discovery であって gate
-            // でない: 本手法/三回/反復的 等の自然な複合まで数える。blocking は prh residue の分業・
-            // coinage.rs 冒頭の裁定コメント参照）。辞書が無ければ skip を明示 — check は「使える床を
-            // 全部張る」であり、環境不足で全体を殺さない（個別 subcommand は従来の exit 契約のまま）。
-            let exempt: std::collections::HashSet<String> = allow
-                .iter()
-                .flat_map(|p| correo::codemix::domain_vocab(p))
-                .collect();
+            // biome check に倣う porcelain: 引数ゼロで動く・設定は correo.toml 自動発見・
+            // 優先順位は CLI flag > correo.toml > 組み込み既定。findings は一度だけ集めて
+            // text / json 両形式に render する（inline 抑制 = suppress.rs も一元適用）。
+            // blocking は kinoshita（HARD）のみ。codemix と coinage(strict) は advisory —
+            // 非 strict の列挙は discovery であって gate でない（coinage.rs 冒頭の裁定参照）。
+            let (cfg_path, cfg) = match correo::config::discover() {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("correo check: {e}");
+                    exit(2);
+                }
+            };
+            let threshold = threshold.or(cfg.codemix.threshold).unwrap_or(8.0);
+            let max_sentence = max_sentence.or(cfg.kinoshita.max_sentence).unwrap_or(100);
+            let max_ten = max_ten.or(cfg.kinoshita.max_ten).unwrap_or(4);
+            // 許容語彙 = correo.toml の allow ∪ --allow registry file 群（codemix/coinage 共用）
+            let mut exempt: std::collections::HashSet<String> =
+                cfg.allow.iter().map(|w| w.to_lowercase()).collect();
+            for p in &allow {
+                exempt.extend(correo::codemix::domain_vocab(p));
+            }
+            // 対象: 引数なし → cwd 以下の *.md（.gitignore 準拠・ignore crate = ripgrep の walker）
+            let files: Vec<String> = if files.is_empty() {
+                let mut v: Vec<String> = ignore::Walk::new(".")
+                    .flatten()
+                    .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
+                    .map(|e| e.path().display().to_string())
+                    .collect();
+                v.sort();
+                v
+            } else {
+                files
+            };
+            if files.is_empty() {
+                eprintln!("correo check: 対象の *.md がありません");
+                exit(2);
+            }
 
-            // Tier 3 judge 界面: 全 finding を JSON で emit（severity: error=HARD / advisory=候補）。
-            // exit は error 有無のみで決まる — advisory は judge へ渡す座標であって失敗ではない。
-            if format == Format::Json {
-                let mut findings: Vec<correo::report::Finding> = Vec::new();
-                for f in &files {
-                    let text = match std::fs::read_to_string(f) {
-                        Err(e) => {
-                            eprintln!("correo check: {f} 読込失敗: {e} (skip)");
-                            continue;
-                        }
-                        Ok(t) => t,
-                    };
-                    for p in correo::codemix::scan_paragraphs(&text, &exempt) {
-                        if p.density >= threshold {
-                            findings.push(correo::report::Finding {
-                                detector: "codemix",
-                                rule: "latin-density".into(),
-                                file: f.clone(),
-                                line: p.line,
-                                severity: "advisory",
-                                message: format!(
-                                    "{:.0} latin/100字 (JA {} chars) — 3-way 分類（domain/pinned/gratuitous）へ",
-                                    p.density, p.ja_chars
-                                ),
-                                data: Some(serde_json::json!({
-                                    "density": p.density,
-                                    "ja_chars": p.ja_chars,
-                                    "vocab": p.vocab,
-                                })),
-                            });
-                        }
+            let mut findings: Vec<correo::report::Finding> = Vec::new();
+            let mut sup: std::collections::HashMap<String, correo::suppress::Suppressions> =
+                std::collections::HashMap::new();
+            for f in &files {
+                let text = match std::fs::read_to_string(f) {
+                    Err(e) => {
+                        eprintln!("correo check: {f} 読込失敗: {e} (skip)");
+                        continue;
                     }
-                    for x in correo::kinoshita::scan(&text, max_sentence, max_ten) {
+                    Ok(t) => t,
+                };
+                let s = correo::suppress::scan(&text);
+                for p in correo::codemix::scan_paragraphs(&text, &exempt) {
+                    if p.density >= threshold && !s.hit(p.line, "codemix", "latin-density") {
                         findings.push(correo::report::Finding {
-                            detector: "kinoshita",
-                            rule: x.rule.into(),
+                            detector: "codemix",
+                            rule: "latin-density".into(),
                             file: f.clone(),
-                            line: x.line,
-                            severity: match x.severity {
-                                correo::kinoshita::Severity::Hard => "error",
-                                correo::kinoshita::Severity::Advisory => "advisory",
-                            },
-                            message: x.msg,
-                            data: None,
+                            line: p.line,
+                            severity: "advisory",
+                            message: format!(
+                                "{:.0} latin/100字 (JA {}) — 3-way 分類へ: {}",
+                                p.density,
+                                p.ja_chars,
+                                p.vocab.join(" ")
+                            ),
+                            data: Some(serde_json::json!({
+                                "density": p.density,
+                                "ja_chars": p.ja_chars,
+                                "vocab": p.vocab,
+                            })),
                         });
                     }
                 }
-                #[cfg(feature = "coinage")]
-                {
-                    let a = correo::coinage::CoinageArgs {
-                        dict_dir: None,
-                        allow: allow.iter().map(|p| p.display().to_string()).collect(),
-                        diff: false,
-                        strict: true,
-                        advisory: true,
-                        files: files.clone(),
-                    };
-                    match correo::coinage::collect(&a) {
-                        Ok((hits, _)) => {
-                            for h in hits {
-                                findings.push(correo::report::Finding {
-                                    detector: "coinage",
-                                    rule: "dictionary-coinage".into(),
-                                    file: h.file,
-                                    line: h.line,
-                                    severity: "advisory",
-                                    message: format!(
-                                        "「{}」は辞書見出し語でない複合 — judge が 自然/allow 登録/確定造語 を分類",
-                                        h.compound
-                                    ),
-                                    data: Some(serde_json::json!({
-                                        "compound": h.compound,
-                                        "components": h.components,
-                                    })),
-                                });
-                            }
-                        }
-                        Err(e) => eprintln!("correo check: coinage skip ({e})"),
+                for x in correo::kinoshita::scan(&text, max_sentence, max_ten) {
+                    if s.hit(x.line, "kinoshita", x.rule) {
+                        continue;
                     }
+                    findings.push(correo::report::Finding {
+                        detector: "kinoshita",
+                        rule: x.rule.into(),
+                        file: f.clone(),
+                        line: x.line,
+                        severity: match x.severity {
+                            correo::kinoshita::Severity::Hard => "error",
+                            correo::kinoshita::Severity::Advisory => "advisory",
+                        },
+                        message: x.msg,
+                        data: None,
+                    });
                 }
-                let report = correo::report::Report::new(findings);
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&report).expect("report serialize")
-                );
-                exit(if report.summary.error > 0 { 1 } else { 0 });
+                sup.insert(f.clone(), s);
             }
-
-            let mut code = correo::codemix::codemix(threshold, &files, &exempt); // 常に 0
-            code = code.max(correo::kinoshita::run_kinoshita(
-                correo::kinoshita::KinoshitaArgs {
-                    max_sentence,
-                    max_ten,
-                    advisory: false,
-                    files: files.clone(),
-                },
-            ));
             #[cfg(feature = "coinage")]
             {
                 let a = correo::coinage::CoinageArgs {
                     dict_dir: None,
                     allow: allow.iter().map(|p| p.display().to_string()).collect(),
+                    allow_words: cfg.allow.clone(),
                     diff: false,
                     strict: true,
                     advisory: true,
                     files: files.clone(),
                 };
-                match correo::coinage::run_coinage(a) {
-                    Ok(c) => code = code.max(c),
+                match correo::coinage::collect(&a) {
+                    Ok((hits, _)) => {
+                        for h in hits {
+                            if sup
+                                .get(&h.file)
+                                .is_some_and(|s| s.hit(h.line, "coinage", "dictionary-coinage"))
+                            {
+                                continue;
+                            }
+                            findings.push(correo::report::Finding {
+                                detector: "coinage",
+                                rule: "dictionary-coinage".into(),
+                                file: h.file,
+                                line: h.line,
+                                severity: "advisory",
+                                message: format!(
+                                    "「{}」は辞書見出し語でない複合 — 標準語へ書き直すか correo.toml の allow に登録",
+                                    h.compound
+                                ),
+                                data: Some(serde_json::json!({
+                                    "compound": h.compound,
+                                    "components": h.components,
+                                })),
+                            });
+                        }
+                    }
                     Err(e) => eprintln!(
                         "correo check: coinage skip ({e}) — mise run setup:sudachidict で辞書を用意"
                     ),
@@ -243,7 +251,42 @@ fn main() {
             }
             #[cfg(not(feature = "coinage"))]
             eprintln!("correo check: coinage skip（--features coinage なしの build）");
-            exit(code);
+
+            findings.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+            let report = correo::report::Report::new(findings);
+            match format {
+                Format::Json => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).expect("report serialize")
+                ),
+                Format::Text => {
+                    for x in &report.findings {
+                        let tag = if x.severity == "advisory" {
+                            "·advisory"
+                        } else {
+                            ""
+                        };
+                        println!(
+                            "{}:{}: [{}/{}{tag}] {}",
+                            x.file, x.line, x.detector, x.rule, x.message
+                        );
+                    }
+                    let cfg_note = cfg_path
+                        .map(|p| format!("・設定 {}", p.display()))
+                        .unwrap_or_default();
+                    if report.findings.is_empty() {
+                        println!("correo check: OK ({} files{cfg_note})", files.len());
+                    } else {
+                        println!(
+                            "correo check: error {} / advisory {} ({} files{cfg_note})",
+                            report.summary.error,
+                            report.summary.advisory,
+                            files.len()
+                        );
+                    }
+                }
+            }
+            exit(if report.summary.error > 0 { 1 } else { 0 });
         }
         Command::Kinoshita {
             max_sentence,
@@ -271,6 +314,7 @@ fn main() {
             let a = correo::coinage::CoinageArgs {
                 dict_dir,
                 allow,
+                allow_words: vec![],
                 diff,
                 strict,
                 advisory,

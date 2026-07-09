@@ -2,7 +2,7 @@
 name = "correo"
 version = "0.1.0"
 edition = "2024"
-description = "日本語実用文の lint ── LLM slop（ルー語 codemix・造語/混種語 coinage・動詞カルク）と木下是雄の機械判定可能層（kinoshita: 文長・読点・文体混在・二重否定・ぼかし・指示語）。事実性・hype は対象外。"
+description = "日本語実用文の lint ── LLM slop（ルー語 codemix・造語/混種語 coinage・動詞カルク）と、木下是雄の原則のうち機械的に判定できるもの（kinoshita: 文長・読点・文体混在・二重否定・ぼかし・指示語）。事実性・hype は対象外。"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/fuyutarow/correo"
 
@@ -21,6 +21,8 @@ sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", tag = "v0.6
 clap = { version = "4", features = ["derive"] }   # CLI 引数（user 指定: 手書き parse を廃し robust parsing + --help 生成。軽量 argh/lexopt より UX 優先）
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+toml = "1.1.2"
+ignore = "0.4.27"
 
 [features]
 # 汎用ツールとして coinage（形態素の造語検出）を既定で有効化。--no-default-features で純 codemix。
