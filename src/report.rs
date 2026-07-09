@@ -7,7 +7,7 @@ use serde::Serialize;
 
 /// Hard = 機械判定が最終（blocking・exit に数える）。Advisory = 高精度 heuristic だが
 /// 文脈で正当があり得る（報告のみ・judge/人の確認へ回す）。
-/// 検出器横断の共通型（2026-07-09 再分割で kinoshita 専有から一段上げた — structure と共有）。
+/// 検出器横断の共通型（2026-07-09 再分割で readability 専有から一段上げた — structure と共有）。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Hard,
@@ -23,7 +23,7 @@ pub struct Violation {
 
 #[derive(Serialize)]
 pub struct Finding {
-    /// codemix | kinoshita | coinage
+    /// codemix | readability | coinage
     pub detector: &'static str,
     pub rule: String,
     pub file: String,

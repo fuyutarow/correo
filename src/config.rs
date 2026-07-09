@@ -24,7 +24,7 @@ pub struct Config {
     #[serde(default)]
     pub codemix: CodemixCfg,
     #[serde(default)]
-    pub kinoshita: KinoshitaCfg,
+    pub readability: ReadabilityCfg,
     #[serde(default)]
     pub coinage: CoinageCfg,
 }
@@ -48,7 +48,7 @@ pub struct CodemixCfg {
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
-pub struct KinoshitaCfg {
+pub struct ReadabilityCfg {
     pub max_sentence: Option<usize>,
     pub max_ten: Option<usize>,
 }
@@ -83,7 +83,7 @@ allow = ["ルー語", "slop"]
 "機械床" = "標準的な言い方へ書き直す"
 [codemix]
 threshold = 6.0
-[kinoshita]
+[readability]
 max-sentence = 90
 "#,
         )
@@ -91,8 +91,8 @@ max-sentence = 90
         assert_eq!(cfg.allow.len(), 2);
         assert_eq!(cfg.deny.len(), 1);
         assert_eq!(cfg.codemix.threshold, Some(6.0));
-        assert_eq!(cfg.kinoshita.max_sentence, Some(90));
-        assert_eq!(cfg.kinoshita.max_ten, None);
+        assert_eq!(cfg.readability.max_sentence, Some(90));
+        assert_eq!(cfg.readability.max_ten, None);
     }
 
     #[test]

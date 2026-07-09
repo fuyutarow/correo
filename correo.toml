@@ -10,7 +10,7 @@
 
 allow = [
   # 製品・検出器・規則・設定キーの名前（README が自身の規則を説明するのに使う）
-  "correo", "codemix", "coinage", "kinoshita", "calque", "sudachi", "prh",
+  "correo", "codemix", "coinage", "readability", "calque", "sudachi", "prh",
   "structure", "density", "deny", "allow", "cache", "slop-phrase", "denied-term", "style",
   # 分野の用語
   "slop", "locate", "judge", "llm-judge", "advisory", "blocking", "severity",
@@ -49,6 +49,6 @@ threshold = 8.0
 # 辞書に無い複合を corpus 照合: 在る（物理層）→ 自然として消す / 無い（機械床）→ error。
 corpus = "~/.cache/correo/corpus.tsv"
 
-[kinoshita]
+[readability]
 max-sentence = 100
 max-ten = 4

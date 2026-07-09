@@ -145,7 +145,7 @@ mod tests {
         assert!(scan("測定は三回行った。結果を表1に示す。").is_empty());
         // latin 混在段落は判定しない — ASCII は 1 byte/字 で bits/字 が構造的に下がり、
         // 純和文で取った較正が適用できない（dogfood 実測の FP class）。
-        let mixed = "correo の check は codemix と coinage と kinoshita を advisory と error の二値で報告し、correo の check は judge へ構造化した finding を渡す。correo の check は exit code で CI を止める。";
+        let mixed = "correo の check は codemix と coinage と readability を advisory と error の二値で報告し、correo の check は judge へ構造化した finding を渡す。correo の check は exit code で CI を止める。";
         assert!(
             scan(mixed)
                 .iter()

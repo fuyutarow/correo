@@ -1,4 +1,4 @@
-// kinoshita.rs — 木下是雄『理科系の作文技術』に根拠を持つ可読性・トーンの床（機械が言い切れる判定）。
+// readability.rs — 木下是雄『理科系の作文技術』に根拠を持つ可読性・トーンの床（機械が言い切れる判定）。
 // Tier 1（2026-07-09 スコープ拡張・決定的実験「木下違反まみれ文書に correo 両検出器 PASS」の是正）:
 //   文長・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖。
 // 2026-07-09 再分割: LLM 定型構造の 4 規則（bullet-template・opener-repetition・
@@ -13,7 +13,7 @@ use regex::Regex;
 use std::fs;
 use std::io::Read;
 
-pub struct KinoshitaArgs {
+pub struct ReadabilityArgs {
     /// 一文の最大文字数（既定 100 — LP textlint 床と同値の運用床）
     pub max_sentence: usize,
     /// 一文の最大読点数（既定 4）
@@ -236,7 +236,7 @@ pub fn fix(text: &str) -> (String, usize) {
 
 /// CLI entry。Hard violation があれば exit 1（--advisory で 0）。Advisory 規則は報告のみで
 /// exit に数えない（MIX tier — judge/人の確認へ回す）。
-pub fn run_kinoshita(args: KinoshitaArgs) -> i32 {
+pub fn run_readability(args: ReadabilityArgs) -> i32 {
     let mut hard = 0usize;
     let mut adv = 0usize;
     let mut report = |label: &str, text: &str| {
@@ -261,24 +261,24 @@ pub fn run_kinoshita(args: KinoshitaArgs) -> i32 {
     } else {
         for f in &args.files {
             match fs::read_to_string(f) {
-                Err(e) => eprintln!("correo kinoshita: {f} 読込失敗: {e} (skip)"),
+                Err(e) => eprintln!("correo readability: {f} 読込失敗: {e} (skip)"),
                 Ok(t) => report(&format!("{f}:"), &t),
             }
         }
     }
     if hard == 0 && adv == 0 {
         println!(
-            "KINOSHITA PASS: Tier1 違反なし（文長・読点・文体混在・二重否定・ぼかし・指示語・の連鎖・冗長）"
+            "READABILITY PASS: Tier1 違反なし（文長・読点・文体混在・二重否定・ぼかし・指示語・の連鎖・冗長）"
         );
         0
     } else if hard == 0 {
-        println!("KINOSHITA PASS: HARD 違反なし（advisory {adv} 件 — judge/人が確認）");
+        println!("READABILITY PASS: HARD 違反なし（advisory {adv} 件 — judge/人が確認）");
         0
     } else if args.advisory {
-        println!("KINOSHITA CANDIDATES: HARD {hard} 件 + advisory {adv} 件（advisory mode）");
+        println!("READABILITY CANDIDATES: HARD {hard} 件 + advisory {adv} 件（advisory mode）");
         0
     } else {
-        println!("KINOSHITA FAIL: {hard} 件（+ advisory {adv} 件）");
+        println!("READABILITY FAIL: {hard} 件（+ advisory {adv} 件）");
         1
     }
 }

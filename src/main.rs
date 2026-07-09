@@ -47,10 +47,10 @@ enum Command {
         /// allow-list registry file の追加注入（correo.toml の allow が主経路・これは補助）
         #[arg(long)]
         allow: Vec<PathBuf>,
-        /// kinoshita: 一文の最大文字数（既定 100・correo.toml で設定可）
+        /// readability: 一文の最大文字数（既定 100・correo.toml で設定可）
         #[arg(long)]
         max_sentence: Option<usize>,
-        /// kinoshita: 一文の最大読点数（既定 4・correo.toml で設定可）
+        /// readability: 一文の最大読点数（既定 4・correo.toml で設定可）
         #[arg(long)]
         max_ten: Option<usize>,
         /// 出力形式（text=人向け / json=judge 連携・機械可読）
@@ -64,8 +64,8 @@ enum Command {
     },
     /// correo.toml の雛形を生成する（既にあれば何もしない）。
     Init,
-    /// 木下是雄 HARD 層（文長・読点過多・文体混在・慣用二重否定・ぼかし連発・指示語連鎖）。
-    Kinoshita {
+    /// 可読性・トーンの床（規準は木下是雄: 文長・読点過多・文体混在・二重否定・ぼかし・指示語）。
+    Readability {
         /// 一文の最大文字数
         #[arg(long, default_value_t = 100)]
         max_sentence: usize,
@@ -116,7 +116,7 @@ allow = [
 [codemix]
 threshold = 8.0
 
-[kinoshita]
+[readability]
 max-sentence = 100
 max-ten = 4
 "#;
@@ -160,7 +160,7 @@ fn main() {
             // biome check に倣う porcelain: 引数ゼロで動く・設定は correo.toml 自動発見・
             // 優先順位は CLI flag > correo.toml > 組み込み既定。findings は一度だけ集めて
             // text / json 両形式に render する（inline 抑制 = suppress.rs も一元適用）。
-            // blocking は kinoshita（HARD）のみ。codemix と coinage(strict) は advisory —
+            // blocking は readability（HARD）のみ。codemix と coinage(strict) は advisory —
             // 非 strict の列挙は discovery であって gate でない（coinage.rs 冒頭の裁定参照）。
             let (cfg_path, cfg) = match correo::config::discover() {
                 Ok(x) => x,
@@ -170,8 +170,8 @@ fn main() {
                 }
             };
             let threshold = threshold.or(cfg.codemix.threshold).unwrap_or(8.0);
-            let max_sentence = max_sentence.or(cfg.kinoshita.max_sentence).unwrap_or(100);
-            let max_ten = max_ten.or(cfg.kinoshita.max_ten).unwrap_or(4);
+            let max_sentence = max_sentence.or(cfg.readability.max_sentence).unwrap_or(100);
+            let max_ten = max_ten.or(cfg.readability.max_ten).unwrap_or(4);
             // 許容語彙 = correo.toml の allow ∪ --allow registry file 群（codemix/coinage 共用）
             let mut exempt: std::collections::HashSet<String> =
                 cfg.allow.iter().map(|w| w.to_lowercase()).collect();
@@ -218,7 +218,7 @@ fn main() {
                 };
                 if write {
                     // 修正 → 書き戻し → 修正後 text を検査（直した違反は報告に残らない）
-                    let (out, n) = correo::kinoshita::fix(&text);
+                    let (out, n) = correo::readability::fix(&text);
                     if n > 0 {
                         if let Err(e) = std::fs::write(f, &out) {
                             eprintln!("correo check: {f} 書き込み失敗: {e}");
@@ -281,18 +281,18 @@ fn main() {
                         });
                     }
                 }
-                for x in correo::kinoshita::scan(&text, max_sentence, max_ten) {
-                    if s.hit(x.line, "kinoshita", x.rule) {
+                for x in correo::readability::scan(&text, max_sentence, max_ten) {
+                    if s.hit(x.line, "readability", x.rule) {
                         continue;
                     }
                     findings.push(correo::report::Finding {
-                        detector: "kinoshita",
+                        detector: "readability",
                         rule: x.rule.into(),
                         file: f.clone(),
                         line: x.line,
                         severity: match x.severity {
-                            correo::kinoshita::Severity::Hard => "error",
-                            correo::kinoshita::Severity::Advisory => "advisory",
+                            correo::readability::Severity::Hard => "error",
+                            correo::readability::Severity::Advisory => "advisory",
                         },
                         message: x.msg,
                         data: None,
@@ -496,14 +496,14 @@ fn main() {
             }
             exit(if report.summary.error > 0 { 1 } else { 0 });
         }
-        Command::Kinoshita {
+        Command::Readability {
             max_sentence,
             max_ten,
             advisory,
             files,
         } => {
-            exit(correo::kinoshita::run_kinoshita(
-                correo::kinoshita::KinoshitaArgs {
+            exit(correo::readability::run_readability(
+                correo::readability::ReadabilityArgs {
                     max_sentence,
                     max_ten,
                     advisory,

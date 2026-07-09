@@ -69,18 +69,18 @@ mod tests {
     #[test]
     fn bare_ignore_suppresses_next_line_for_all_rules() {
         let s = scan("<!-- correo-ignore -->\nこの行の指摘は全部消える。\n三行目は消えない。");
-        assert!(s.hit(2, "kinoshita", "no-chain"));
+        assert!(s.hit(2, "readability", "no-chain"));
         assert!(s.hit(2, "coinage", "dictionary-coinage"));
-        assert!(!s.hit(3, "kinoshita", "no-chain"));
+        assert!(!s.hit(3, "readability", "no-chain"));
     }
 
     #[test]
     fn named_ignore_suppresses_only_named_rule_or_detector() {
         let s = scan("本文 <!-- correo-ignore no-chain coinage -->");
-        assert!(s.hit(1, "kinoshita", "no-chain"), "規則名で抑制");
+        assert!(s.hit(1, "readability", "no-chain"), "規則名で抑制");
         assert!(s.hit(1, "coinage", "dictionary-coinage"), "検出器名で抑制");
         assert!(
-            !s.hit(1, "kinoshita", "sentence-length"),
+            !s.hit(1, "readability", "sentence-length"),
             "無関係の規則は生きる"
         );
     }

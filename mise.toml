@@ -24,7 +24,7 @@ description = "release build（配布 binary）"
 run = "cargo build --release"
 
 [tasks."lint:self"]
-description = "dogfood: correo で repo 内の *.md を全部 lint（引数ゼロ＝walker・設定は correo.toml 自動発見。kinoshita HARD が ratchet・coinage の新語は advisory に浮いて裁定を待つ）"
+description = "dogfood: correo で repo 内の *.md を全部 lint（引数ゼロ＝walker・設定は correo.toml 自動発見。readability HARD が ratchet・coinage の新語は advisory に浮いて裁定を待つ）"
 run = "cargo run --quiet -- check"
 
 # 集約 gate（CI 相当）。cargo check は入れない: clippy がコンパイル＋lint を兼ねる上位互換ゆえ重複。

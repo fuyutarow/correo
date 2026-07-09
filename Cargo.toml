@@ -3,7 +3,7 @@ name = "correo"
 # versioning: 0.{yymm}.z（CalVer 風 — minor が西暦下2桁+月、patch が同月内の増分）
 version = "0.2607.0"
 edition = "2024"
-description = "日本語実用文の lint ── LLM slop（ルー語 codemix・造語/混種語 coinage・動詞カルク）と、木下是雄の原則のうち機械的に判定できるもの（kinoshita: 文長・読点・文体混在・二重否定・ぼかし・指示語）。事実性・hype は対象外。"
+description = "日本語実用文の lint ── LLM slop（ルー語 codemix・造語/混種語 coinage・動詞カルク）と、木下是雄の原則のうち機械的に判定できるもの（readability: 文長・読点・文体混在・二重否定・ぼかし・指示語）。事実性・hype は対象外。"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/fuyutarow/correo"
 

@@ -1,8 +1,8 @@
 // prose.rs — markdown 散文抽出の単一 home（Biome「1-parse, multiple-passes」の correo 版）。
-// 検出器（codemix / kinoshita / 将来の calque・Tier2 proxy・Tier3 座標出力）は本 module の
+// 検出器（codemix / readability / 将来の calque・Tier2 proxy・Tier3 座標出力）は本 module の
 // 散文単位を共有し、markdown の扱い（fence / 構造行 / inline code / URL / 段落 / bullet 行群 /
 // 文分割）を各自で再実装しない。
-// 抽出の経緯（2026-07-09）: fence pre-pass が codemix と kinoshita に重複し、F2 修正を
+// 抽出の経緯（2026-07-09）: fence pre-pass が codemix と readability に重複し、F2 修正を
 // 二箇所へ適用する実害が出た — 共通変更点（CCP）は一 home へ。
 //
 // 行来歴の契約: 返す全単位は原文の 1-始まり行番号を持つ。除去（fence・構造行・空白のみ行）は
@@ -104,7 +104,7 @@ pub fn prose_units(text: &str) -> Vec<ProseUnit> {
 
 /// 全文 → 文（。！？ 区切り）。(開始行, 本文) を返す。行跨ぎの一文は接続する。
 /// 空行・構造行（空行化済み）で接続を切る — 表や見出しを跨いで一文にしない
-/// （旧 kinoshita 実装は構造行で切ると註記しながら実際は接続していた comment-code 乖離の是正）。
+/// （旧 readability 実装は構造行で切ると註記しながら実際は接続していた comment-code 乖離の是正）。
 pub fn sentences(text: &str) -> Vec<(usize, String)> {
     let cleaned = clean_lines(text);
     let mut out = Vec::new();

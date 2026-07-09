@@ -1,4 +1,4 @@
-// structure.rs — LLM 定型構造（layout slop）の検出。2026-07-09 に kinoshita.rs から分離。
+// structure.rs — LLM 定型構造（layout slop）の検出。2026-07-09 に readability.rs から分離。
 // 分離の理由: この 4 規則は『理科系の作文技術』に無い（LLM 生成文の指紋 2 つ＋textlint-ja
 // からの移植 2 つ）— 木下の名の下に置くのは出自の偽装だった。module 分割の原則は
 // 「検出器 = 検査する性質 1 つ」で、出自は規則ごとに README の規則台帳が記録する。

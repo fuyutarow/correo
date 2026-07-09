@@ -36,7 +36,7 @@
         }
       }
     },
-    "kinoshita": {
+    "readability": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
