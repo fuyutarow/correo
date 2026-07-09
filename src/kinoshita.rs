@@ -219,7 +219,8 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 msg: "指示語 3 つ以上 — 指す対象を名詞で書き直す".to_string(),
             });
         }
-        let masked = title_span.replace_all(s, "◯");
+        // 「そのもの」は語彙単位（の×2 を含む）— 連鎖に数えない（2026-07-09 dogfood FP）。
+        let masked = title_span.replace_all(s, "◯").replace("そのもの", "◯");
         if let Some(m) = no_chain.find(&masked) {
             // 指示詞（こ/そ/あ/ど）の の は連鎖に数えない: このAのBのC は content 2 で不問。
             let content = m
@@ -270,7 +271,9 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
         } else {
             (&plain_lines, "である")
         };
-        for l in minority.iter().take(5) {
+        // 同一行に少数派が複数あっても報告は 1 件（重複ノイズの排除・2026-07-09 実測）。
+        let mut seen = std::collections::HashSet::new();
+        for l in minority.iter().filter(|l| seen.insert(**l)).take(5) {
             v.push(Violation {
                 line: *l,
                 rule: "style-mixing",

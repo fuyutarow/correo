@@ -298,6 +298,20 @@ fn main() {
                         data: None,
                     });
                 }
+                for d in correo::density::scan(&text) {
+                    if s.hit(d.line, "density", d.rule) {
+                        continue;
+                    }
+                    findings.push(correo::report::Finding {
+                        detector: "density",
+                        rule: d.rule.into(),
+                        file: f.clone(),
+                        line: d.line,
+                        severity: "advisory",
+                        message: d.msg,
+                        data: None,
+                    });
+                }
                 sup.insert(f.clone(), s);
             }
             #[cfg(feature = "coinage")]
