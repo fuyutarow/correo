@@ -1,0 +1,51 @@
+# Release — tag 契機でプラットフォーム別のプリビルド binary を GitHub Release に置く。
+# 目的: brew/cargo が各自でコンパイルする現状をやめ、DL で入る配布にする。
+# 辞書（~207MB）は binary に含めない — CLI が `correo setup` で ~/.cache へ取得する（2026-07-09 方針）。
+# 同梱するのは binary ＋ metaphor-lex.tsv（data）だけ。
+#
+# 未検証の注記: このワークフローは macOS runner を要し、この開発機（Linux）では実行できない。
+# 最初の tag（v0.2607.0）で実走させて詰める。action 版は ci.yml と同じ実検証済みの pin。
+#
+# brew を「コンパイル無し」にする次段（Homebrew bottle: bottle do ブロック＋bottle 生成）は、
+# ここで作る Release が存在してから bootstrap する別 job。まず本 binary 配布を通す。
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14 # Apple Silicon
+            target: aarch64-apple-darwin
+          - os: macos-13 # Intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (coinage feature = Sudachi 造語検出込み)
+        run: cargo build --release --features coinage --target ${{ matrix.target }}
+      - name: Package (binary + metaphor lexicon)
+        run: |
+          bin="target/${{ matrix.target }}/release/correo"
+          tar -czf "correo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" \
+            -C "$(dirname "$bin")" correo \
+            -C "${GITHUB_WORKSPACE}/lexicons" metaphor-lex.tsv
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" --generate-notes 2>/dev/null || true
+          gh release upload "${{ github.ref_name }}" "correo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" --clobber

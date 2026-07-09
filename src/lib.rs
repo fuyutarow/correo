@@ -27,5 +27,6 @@ pub mod prose;
 pub mod readability;
 pub mod report;
 pub mod rhetoric;
+pub mod setup;
 pub mod structure;
 pub mod suppress;

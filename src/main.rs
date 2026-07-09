@@ -64,6 +64,12 @@ enum Command {
     },
     /// correo.toml の雛形を生成する（既にあれば何もしない）。
     Init,
+    /// coinage 用の Sudachi 辞書を ~/.cache/correo へ取得する（brew は辞書非同梱・CLI が管理）。
+    Setup {
+        /// 既存でも取り直す
+        #[arg(long)]
+        force: bool,
+    },
     /// 可読性・トーンの床（規準は木下是雄: 文長・読点過多・文体混在・二重否定・ぼかし・指示語）。
     Readability {
         /// 一文の最大文字数
@@ -147,6 +153,7 @@ fn main() {
                 .collect();
             exit(correo::codemix::codemix(threshold, &files, &exempt));
         }
+        Command::Setup { force } => exit(correo::setup::run(force)),
         Command::Init => {
             let p = std::path::Path::new("correo.toml");
             if p.exists() {
