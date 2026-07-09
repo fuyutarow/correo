@@ -25,6 +25,18 @@ pub struct Config {
     pub codemix: CodemixCfg,
     #[serde(default)]
     pub kinoshita: KinoshitaCfg,
+    #[serde(default)]
+    pub coinage: CoinageCfg,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CoinageCfg {
+    /// 実コーパス由来の語彙表（1 行 1 語・TSV は先頭列・# 行は無視）。設定すると strict 候補を
+    /// corpus 照合し、**corpus に無い複合は error へ昇格（proactive な造語判定）・在る複合は
+    /// 自然として消す**（物理層 等、C 単位に無いだけの実在語）。辞書 membership だけでは
+    /// 機械床/物理層 を区別できない精度天井を、頻度の証拠で破る（2026-07-09）。
+    pub corpus: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Default)]

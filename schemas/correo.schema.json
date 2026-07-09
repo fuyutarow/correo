@@ -26,6 +26,16 @@
         }
       }
     },
+    "coinage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "corpus": {
+          "type": "string",
+          "description": "実コーパス由来の語彙表の path（1 行 1 語・TSV は先頭列・~ 展開可）。設定すると辞書に無い複合を corpus 照合し、無い複合は error（造語）・在る複合は自然として消す。mise run setup:corpus が jawiki 記事タイトルを配置する。"
+        }
+      }
+    },
     "kinoshita": {
       "type": "object",
       "additionalProperties": false,

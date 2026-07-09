@@ -7,7 +7,7 @@
 **LLM slop の検出**（機械が混ぜた非母語的な日本語。候補を挙げるだけで判定しない）
 
 - **codemix** — 地の文の latin/100字 密度（ルー語）。識別子・ALLCAPS 略語・allow-list に登録した語は除外。
-- **coinage** — Sudachi 形態素解析で辞書外の複合語（不自然な造語・`slop軸` のような混種語も含む）を検出。
+- **coinage** — Sudachi 形態素解析で辞書外の複合語（不自然な造語・`slop軸` のような混種語も含む）を検出。corpus 語彙表を設定すると第二の証拠で裁く: **corpus に無い複合は error（`機械床`）・在る複合は自然として消す（`物理層`）** — 辞書だけでは区別できない二者を頻度の実績で分ける。
 - **calque**（順次）— 英語動詞を「する」に接ぐ code-switching。
 
 **木下原則の検査**（機械が言い切れる判定だけ — HARD）
@@ -110,10 +110,14 @@ threshold = 8.0
 max-sentence = 100
 max-ten = 4
 
-# 確定した造語の禁止（HARD・exit 1）。値は書き直しの案 — 一度書き直すと裁定した語の
-# 再侵入を機械が阻止する。judge 裁定の第三バケツ: 自然→無視 / 使い続ける→allow / 確定→deny。
+# 実コーパスの語彙表（設定すると coinage が proactive に造語を error 判定できる）
+[coinage]
+corpus = "~/.cache/correo/corpus.tsv"   # mise run setup:corpus が配置（jawiki 記事タイトル）
+
+# deny は「実在するが使わない」と決めた語の house rule（値は書き直しの案・HARD）。
+# 造語はここに書かない — corpus 照合が自動で error にする。
 [deny]
-"機械床" = "「機械的に判定できる lint」など標準的な言い方へ書き直す"
+"ぶっちゃけ" = "くだけた話し言葉 — 「率直に言えば」等へ"
 ```
 
 一回きりの言及は登録せず、その場で抑制する（biome-ignore と同じ役割の分担）:

@@ -65,6 +65,21 @@ type Component = (String, [String; 3]);
 //   残 FP class（正直に）: 例/図/層/軸 tail（使用例・物理層 等）は辞書が接尾辞語義を持たず flag
 //   され得る — channel は allow-list 登録・深い治療は n-gram corpus か judge 層（advisory）。
 
+/// corpus 語彙表（jawiki 記事タイトル・BCCWJ 長単位語彙表等）を読む。
+/// 1 行 1 語・TSV は先頭列・#/空行は無視。用途は check の strict 候補照合 —
+/// 「辞書に無い」だけでは造語と実在語（物理層）を区別できないため、実コーパスの
+/// 出現実績を第二の証拠にする。
+#[cfg(feature = "coinage")]
+pub fn load_corpus(path: &Path) -> Result<HashSet<String>> {
+    let t =
+        fs::read_to_string(path).with_context(|| format!("corpus 読込失敗: {}", path.display()))?;
+    Ok(t.lines()
+        .map(|l| l.split('\t').next().unwrap_or("").trim())
+        .filter(|s| !s.is_empty() && !s.starts_with('#'))
+        .map(str::to_string)
+        .collect())
+}
+
 /// latin 語 token（ASCII 英数と -_ のみ・英字を含む）。混種語 run の latin 側成分。
 #[cfg(feature = "coinage")]
 fn is_latin_word(s: &str) -> bool {

@@ -277,6 +277,38 @@ fn main() {
             }
             #[cfg(feature = "coinage")]
             {
+                // corpus 照合（第二の証拠）: 辞書に無い複合でも実コーパスに在れば自然（物理層）、
+                // 無ければ造語として error へ昇格（機械床）— deny の手書き複写を不要にする。
+                // corpus 設定があるのに file が無いのは環境の未整備 — 大声で警告して advisory へ
+                // 劣化する（zero-config の頑健さを壊さない）。
+                let corpus: Option<std::collections::HashSet<String>> =
+                    cfg.coinage.corpus.as_ref().and_then(|p| {
+                        let p = match p.strip_prefix("~/") {
+                            Ok(rest) => std::env::var("HOME")
+                                .map(|h| std::path::PathBuf::from(h).join(rest))
+                                .unwrap_or_else(|_| p.clone()),
+                            Err(_) => {
+                                if p.is_relative() {
+                                    cfg_path
+                                        .as_ref()
+                                        .and_then(|c| c.parent())
+                                        .map(|d| d.join(p))
+                                        .unwrap_or_else(|| p.clone())
+                                } else {
+                                    p.clone()
+                                }
+                            }
+                        };
+                        match correo::coinage::load_corpus(&p) {
+                            Ok(s) => Some(s),
+                            Err(e) => {
+                                eprintln!(
+                                    "correo check: {e} — mise run setup:corpus で取得（それまで coinage は advisory）"
+                                );
+                                None
+                            }
+                        }
+                    });
                 let a = correo::coinage::CoinageArgs {
                     dict_dir: None,
                     allow: allow.iter().map(|p| p.display().to_string()).collect(),
@@ -295,16 +327,30 @@ fn main() {
                             {
                                 continue;
                             }
+                            let (severity, message) = match &corpus {
+                                Some(c) if c.contains(&h.compound) => continue, // 実コーパスに実在＝自然
+                                Some(_) => (
+                                    "error",
+                                    format!(
+                                        "「{}」は辞書にも corpus にも無い複合 — 造語。標準的な言い方へ書き直す（意図的なら allow へ）",
+                                        h.compound
+                                    ),
+                                ),
+                                None => (
+                                    "advisory",
+                                    format!(
+                                        "「{}」は辞書見出し語でない複合 — 標準語へ書き直すか correo.toml の allow に登録",
+                                        h.compound
+                                    ),
+                                ),
+                            };
                             findings.push(correo::report::Finding {
                                 detector: "coinage",
                                 rule: "dictionary-coinage".into(),
                                 file: h.file,
                                 line: h.line,
-                                severity: "advisory",
-                                message: format!(
-                                    "「{}」は辞書見出し語でない複合 — 標準語へ書き直すか correo.toml の allow に登録",
-                                    h.compound
-                                ),
+                                severity,
+                                message,
                                 data: Some(serde_json::json!({
                                     "compound": h.compound,
                                     "components": h.components,

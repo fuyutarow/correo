@@ -46,6 +46,15 @@ for f in (pathlib.Path(sudachipy.__file__).parent / 'resources').iterdir():
 print('correo dict ready:', dst)"
 '''
 
+[tasks."setup:corpus"]
+description = "coinage の corpus 照合用語彙表を取得（jawiki 全記事タイトル ~2M 語 → ~/.cache/correo/corpus.tsv）。辞書に無い複合の 造語/実在語 を頻度の証拠で分ける。より高品質な BCCWJ 長単位語彙表（doi.org/10.15084/00003212・研究教育目的無償）へ差し替え可"
+run = '''
+mkdir -p ~/.cache/correo
+curl -sL https://dumps.wikimedia.org/jawiki/latest/jawiki-latest-all-titles-in-ns0.gz \
+  | gunzip | sed 's/_/ /g' > ~/.cache/correo/corpus.tsv
+wc -l ~/.cache/correo/corpus.tsv
+'''
+
 [tasks.install]
 description = "correo を local に install（cargo install --path .）"
 run = "cargo install --path ."
