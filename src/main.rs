@@ -31,6 +31,24 @@ enum Command {
         /// 対象 file（無指定=stdin）
         files: Vec<String>,
     },
+    /// 全検出器を一括実行（codemix=advisory・kinoshita=HARD・coinage=辞書があれば。biome check に倣う集約 gate）。
+    Check {
+        /// codemix の密度閾値（latin / 100 JA字）
+        #[arg(long, default_value_t = 8.0)]
+        threshold: f64,
+        /// allow-list（codemix / coinage 共用・複数可）
+        #[arg(long)]
+        allow: Vec<PathBuf>,
+        /// kinoshita: 一文の最大文字数
+        #[arg(long, default_value_t = 100)]
+        max_sentence: usize,
+        /// kinoshita: 一文の最大読点数
+        #[arg(long, default_value_t = 4)]
+        max_ten: usize,
+        /// 対象 file（stdin 不可 — 複数検出器が同じ入力を読むため file 指定必須）
+        #[arg(required = true)]
+        files: Vec<String>,
+    },
     /// 木下是雄 HARD 層（文長・読点過多・文体混在・慣用二重否定・ぼかし連発・指示語連鎖）。
     Kinoshita {
         /// 一文の最大文字数
@@ -81,6 +99,52 @@ fn main() {
                 .flat_map(|p| correo::codemix::domain_vocab(p))
                 .collect();
             exit(correo::codemix::codemix(threshold, &files, &exempt));
+        }
+        Command::Check {
+            threshold,
+            allow,
+            max_sentence,
+            max_ten,
+            files,
+        } => {
+            // 1 コマンド＝全 gate。blocking は kinoshita（HARD 床）のみ。codemix は advisory、
+            // coinage は strict+advisory（locate 層 — 非 strict の列挙は discovery であって gate
+            // でない: 本手法/三回/反復的 等の自然な複合まで数える。blocking は prh residue の分業・
+            // coinage.rs 冒頭の裁定コメント参照）。辞書が無ければ skip を明示 — check は「使える床を
+            // 全部張る」であり、環境不足で全体を殺さない（個別 subcommand は従来の exit 契約のまま）。
+            let exempt: std::collections::HashSet<String> = allow
+                .iter()
+                .flat_map(|p| correo::codemix::domain_vocab(p))
+                .collect();
+            let mut code = correo::codemix::codemix(threshold, &files, &exempt); // 常に 0
+            code = code.max(correo::kinoshita::run_kinoshita(
+                correo::kinoshita::KinoshitaArgs {
+                    max_sentence,
+                    max_ten,
+                    advisory: false,
+                    files: files.clone(),
+                },
+            ));
+            #[cfg(feature = "coinage")]
+            {
+                let a = correo::coinage::CoinageArgs {
+                    dict_dir: None,
+                    allow: allow.iter().map(|p| p.display().to_string()).collect(),
+                    diff: false,
+                    strict: true,
+                    advisory: true,
+                    files: files.clone(),
+                };
+                match correo::coinage::run_coinage(a) {
+                    Ok(c) => code = code.max(c),
+                    Err(e) => eprintln!(
+                        "correo check: coinage skip ({e}) — mise run setup:sudachidict で辞書を用意"
+                    ),
+                }
+            }
+            #[cfg(not(feature = "coinage"))]
+            eprintln!("correo check: coinage skip（--features coinage なしの build）");
+            exit(code);
         }
         Command::Kinoshita {
             max_sentence,

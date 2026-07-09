@@ -54,6 +54,10 @@ correo codemix --allow vocab.md docs/*.md
 
 # 木下 HARD 床（既定: 一文 100 字・読点 4。--advisory で報告のみ＝exit 0）
 correo kinoshita report.md
+
+# 全検出器を 1 コマンドで。blocking は kinoshita のみ（codemix=advisory・
+# coinage=strict 候補の advisory 報告・辞書が無ければ skip 明示）
+correo check --allow vocab.md docs/*.md
 ```
 
 `--no-default-features` でビルドすると coinage を外した純 codemix になる（Sudachi 依存なし）。

@@ -25,56 +25,6 @@ pub struct Violation {
     pub msg: String,
 }
 
-/// text から地の文の「文」を (開始行, 本文) で抽出する。
-/// fence は全文 pre-pass で除去（codemix と同じ・同数改行置換＝行番号不変）。表/見出し行 skip、
-/// inline code / URL は文中から strip。文境界は 。！？（行跨ぎの文も 1 文に接続する）。
-fn sentences(text: &str) -> Vec<(usize, String)> {
-    let fence = Regex::new(r"(?s)```.*?```").unwrap();
-    let defenced = fence.replace_all(text, |c: &regex::Captures| {
-        "\n".repeat(c[0].matches('\n').count())
-    });
-    let strip = Regex::new(r"`[^`]*`|https?://\S+").unwrap();
-    let mut out = Vec::new();
-    let mut buf = String::new();
-    let mut buf_start = 0usize; // buf が始まった行（0=未開始）
-    for (i, raw) in defenced.lines().enumerate() {
-        let lineno = i + 1;
-        let t = raw.trim_start();
-        if t.starts_with('|') || t.starts_with('#') {
-            continue; // 構造行は文を構成しない（跨ぎ文の接続も切る方が安全側）
-        }
-        let clean = strip.replace_all(raw, "");
-        let trimmed = clean.trim();
-        if trimmed.is_empty() {
-            // 空行＝段落境界。文末記号なしで終わった段落は 1 文として flush（見出し的断片は
-            // 後段の閾値がほぼ反応しないので害がない）。
-            flush(&mut buf, &mut buf_start, &mut out);
-            continue;
-        }
-        if buf.is_empty() {
-            buf_start = lineno;
-        }
-        for ch in trimmed.chars() {
-            buf.push(ch);
-            if matches!(ch, '。' | '！' | '？') {
-                out.push((buf_start, std::mem::take(&mut buf)));
-                buf_start = lineno; // 同一行の続きの文はこの行から
-            }
-        }
-    }
-    let mut end = 0usize;
-    flush(&mut buf, &mut end, &mut out); // end はダミー（buf_start は out へ移動済みの場合空）
-    out
-}
-
-fn flush(buf: &mut String, buf_start: &mut usize, out: &mut Vec<(usize, String)>) {
-    let s = buf.trim();
-    if !s.is_empty() {
-        out.push((*buf_start, s.to_string()));
-    }
-    buf.clear();
-}
-
 /// Tier 1 の全規則を走らせ違反を列挙する（判定は全て機械的＝HARD。密度系は「連発/連鎖」の
 /// 閾値で単発を許す — 単発のぼかしが妥当かは Tier 3 の judge 領分で、ここでは咎めない）。
 pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
@@ -97,7 +47,8 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             .unwrap();
     let plain = Regex::new(r"[ぁ-ん][。！？]$").unwrap();
 
-    let sents = sentences(text);
+    // 文抽出（fence/構造行/inline strip・行跨ぎ接続）は prose.rs の単一 home に委譲（2026-07-09）。
+    let sents = crate::prose::sentences(text);
     let mut v = Vec::new();
     let mut polite_lines: Vec<usize> = Vec::new();
     let mut plain_lines: Vec<usize> = Vec::new();

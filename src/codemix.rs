@@ -37,20 +37,10 @@ pub struct Para {
 }
 
 /// text を段落へ割り、地の文だけの latin 密度（latin/100 JA字）を全段落分返す。
-/// 判定対象外として strip: code fence / inline code / URL / §ref / ledger id、および
-/// **構造行**（markdown 表 `|`・見出し `#`）— 表は英語 term 列で密度が地の文の意味を失う
-/// （dogfooding 実測: 表 347・実測 830 = 表行 artefact・2026-07-06）。
-/// JA 40 字未満の段落は密度が無意味なので除外。
+/// 散文抽出（fence / 構造行 / inline strip / 段落 split / bullet 行群）は `prose.rs` の
+/// 単一 home に委譲（2026-07-09 抽出）— ここに残るのは codemix 固有の**測定**だけ。
+/// JA 40 字未満の単位は密度が無意味なので除外（README 判定床）。
 pub fn scan_paragraphs(text: &str, exempt: &HashSet<String>) -> Vec<Para> {
-    // code fence は段落分割より【先】に全文から落とす（fence 内の空行が段落境界になると
-    // (?s)```.*?``` がペアを見失い、JA コメント付き code block の中身が地の文として計上される
-    // 実バグの是正・2026-07-09 F2）。置換は fence と同数の改行＝行番号不変（Para.line の
-    // 「編集で直接開ける」契約を守る）。fence 以外の strip 対象は行を跨がないので段落内で足りる。
-    let fence = Regex::new(r"(?s)```.*?```").unwrap();
-    let defenced = fence.replace_all(text, |c: &regex::Captures| {
-        "\n".repeat(c[0].matches('\n').count())
-    });
-    let strip = Regex::new(r"`[^`]*`|https?://\S+|§\S+|R\d{4}_\d+|IF-\d").unwrap();
     // token を full で捕え（識別子を割らない）、散文の code-mix だけを数える。除外:
     //   (1) 識別子＝`_` か数字を含む token（collective_only_residual・P3b・c_adaptive_pair）。
     //   (2) ALLCAPS 略語＝HTTP/API/YKL/PPT/RDM/CRB/JW 等の domain 略語（構造で判る・列挙不要＝融通）。
@@ -60,72 +50,14 @@ pub fn scan_paragraphs(text: &str, exempt: &HashSet<String>) -> Vec<Para> {
     let is_identifier = |t: &str| t.contains('_') || t.chars().any(|c| c.is_ascii_digit());
     let is_acronym = |t: &str| t.len() >= 2 && t.chars().all(|c| c.is_ascii_uppercase());
     let ja = Regex::new(r"[\p{Hiragana}\p{Katakana}\p{Han}]").unwrap();
-    // 段落境界（空行）を正規化し、開始行を追跡する。空白のみの行（space/tab/全角 space、
-    // 個数不問）を空行へ潰して境界扱い ── 行内容の削除のみで改行は不変ゆえ行カウントは正確
-    // （旧実装は "\n \n"＝space 1個のみ対応だった・2026-07-09 F5b 一般化）。
-    let blank = Regex::new(r"(?m)^[ \t\u{3000}]+$").unwrap();
-    let normalized = blank.replace_all(&defenced, "");
-    // 連続する bullet 段落は 1 行群へ併合してから測る（F1(b) 2026-07-09: 1 bullet ≒ 1 短段落は
-    // 40字床を割り、LLM slop の主戦場である箇条書きが丸ごと不可視だった）。bullet 段落＝非空行が
-    // 全て bullet marker（- * + ・ 番号）で始まる segment。完全空 segment（4+ 連続空行・fence 跡）
-    // は連鎖を切る。地の文段落とは併合しない。
-    let bullet = Regex::new(r"^(?:[-*+][ \t]|・|[0-9０-９]+[.．)])").unwrap();
-    let is_bullet_block = |seg: &str| {
-        let mut any = false;
-        for l in seg.lines() {
-            let t = l.trim_start();
-            if t.is_empty() {
-                continue;
-            }
-            if !bullet.is_match(t) {
-                return false;
-            }
-            any = true;
-        }
-        any
-    };
-    let mut units: Vec<(usize, String, bool)> = Vec::new(); // (開始行, 本文, bullet 行群か)
-    let mut line = 1usize;
-    for para in normalized.split("\n\n") {
-        // 3 連続以上の改行では segment が先頭 "\n" を抱える — その分を進めて開始行が
-        // 空行でなく本文行を指すようにする（off-by-one 是正・2026-07-09 F5a）。
-        let leading = para.len() - para.trim_start_matches('\n').len();
-        let start_line = line + leading;
-        line += para.matches('\n').count() + 2; // 段落内の改行 ＋ 区切りの "\n\n"
-        if para.trim().is_empty() {
-            if let Some(last) = units.last_mut() {
-                last.2 = false; // 空 segment は bullet 連鎖を切る
-            }
-            continue;
-        }
-        let b = is_bullet_block(para);
-        match units.last_mut() {
-            Some((_, text, true)) if b => {
-                text.push('\n');
-                text.push_str(para);
-            }
-            _ => units.push((start_line, para.to_string(), b)),
-        }
-    }
     let mut out = Vec::new();
-    for (start_line, para, _) in &units {
-        let start_line = *start_line;
-        // 構造行を落として地の文だけ残す（段落全体が表/見出しなら空になり skip される）
-        let prose: String = para
-            .lines()
-            .filter(|l| {
-                let t = l.trim_start();
-                !t.starts_with('|') && !t.starts_with('#')
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let clean = strip.replace_all(&prose, "");
-        let ja_n = ja.find_iter(&clean).count();
+    for u in crate::prose::prose_units(text) {
+        let ja_n = ja.find_iter(&u.text).count();
         if ja_n < 40 {
             continue;
         }
         let toks: Vec<String> = latin
-            .find_iter(&clean)
+            .find_iter(&u.text)
             .map(|m| m.as_str())
             .filter(|t| !is_identifier(t) && !is_acronym(t)) // 識別子・ALLCAPS 略語は散文でない
             .map(|t| t.to_lowercase())
@@ -136,7 +68,7 @@ pub fn scan_paragraphs(text: &str, exempt: &HashSet<String>) -> Vec<Para> {
         vocab.sort();
         vocab.dedup();
         out.push(Para {
-            line: start_line,
+            line: u.line,
             density,
             ja_chars: ja_n,
             vocab,
