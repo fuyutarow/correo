@@ -3,11 +3,12 @@
 # 辞書（~207MB）は binary に含めない — CLI が `correo setup` で ~/.cache へ取得する（2026-07-09 方針）。
 # 同梱するのは binary ＋ metaphor-lex.tsv（data）だけ。
 #
-# 未検証の注記: このワークフローは macOS runner を要し、この開発機（Linux）では実行できない。
-# 最初の tag（v0.2607.0）で実走させて詰める。action 版は ci.yml と同じ実検証済みの pin。
+# v0.2607.0 実走で linux x86_64 と macOS arm64 は成功。macOS Intel は専用 runner の枠不足で
+# 詰まったため、Intel は arm64 runner 上でクロスコンパイルする（Intel runner 依存を排除・2026-07-09）。
+# arm64 mac は x86_64-apple-darwin を native に cross-build できる。
 #
-# brew を「コンパイル無し」にする次段（Homebrew bottle: bottle do ブロック＋bottle 生成）は、
-# ここで作る Release が存在してから bootstrap する別 job。まず本 binary 配布を通す。
+# brew を「コンパイル無し」にする次段（Homebrew bottle: bottle do ＋ bottle 生成）は、
+# ここで作る Release が前提。まず本 binary 配布を通す。
 name: Release
 on:
   push:
@@ -23,29 +24,26 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: macos-14 # Apple Silicon
-            target: aarch64-apple-darwin
-          - os: macos-13 # Intel
-            target: x86_64-apple-darwin
+            targets: x86_64-unknown-linux-gnu
+          - os: macos-14 # Apple Silicon — arm64 と Intel の両方をここで build
+            targets: aarch64-apple-darwin x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build (coinage feature = Sudachi 造語検出込み)
-        run: cargo build --release --features coinage --target ${{ matrix.target }}
-      - name: Package (binary + metaphor lexicon)
+      - name: Build & package each target (coinage feature = Sudachi 造語検出込み)
         run: |
-          bin="target/${{ matrix.target }}/release/correo"
-          tar -czf "correo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" \
-            -C "$(dirname "$bin")" correo \
-            -C "${GITHUB_WORKSPACE}/lexicons" metaphor-lex.tsv
+          for t in ${{ matrix.targets }}; do
+            rustup target add "$t"
+            cargo build --release --features coinage --target "$t"
+            tar -czf "correo-${{ github.ref_name }}-$t.tar.gz" \
+              -C "target/$t/release" correo \
+              -C "${GITHUB_WORKSPACE}/lexicons" metaphor-lex.tsv
+          done
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ github.ref_name }}" --generate-notes 2>/dev/null || true
-          gh release upload "${{ github.ref_name }}" "correo-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" --clobber
+          gh release upload "${{ github.ref_name }}" correo-${{ github.ref_name }}-*.tar.gz --clobber

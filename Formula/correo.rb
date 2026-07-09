@@ -1,12 +1,10 @@
 class Correo < Formula
   desc "Lint for Japanese LLM slop: code-mixing density and dictionary coinage"
   homepage "https://github.com/fuyutarow/correo"
-  # NOTE: まだ release していないため url/sha256 は placeholder。release を切る手順:
-  #   git tag v0.2607.0 && gh release create v0.2607.0 --generate-notes
-  #   curl -sL https://github.com/fuyutarow/correo/archive/refs/tags/v0.2607.0.tar.gz | shasum -a 256
-  #   → 下の 0000… を置換。プリビルド配布（bottle）は .github/workflows/release.yml が担う。
+  # source-build formula（brew が cargo でコンパイル）。sha256 は release v0.2607.0 の
+  # source tarball を実測（2026-07-09）。プリビルド binary は release.yml が Release に置く。
   url "https://github.com/fuyutarow/correo/archive/refs/tags/v0.2607.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 "8a8e66ae834d1f09223be3c366529c32221f8410dd397b0bbfe29ff70a066ddf"
   license any_of: ["MIT", "Apache-2.0"]
   head "https://github.com/fuyutarow/correo.git", branch: "main"
 
