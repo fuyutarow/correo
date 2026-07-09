@@ -147,6 +147,8 @@ dependencies = [
  "anyhow",
  "clap",
  "regex",
+ "serde",
+ "serde_json",
  "sudachi",
  "tempfile",
 ]

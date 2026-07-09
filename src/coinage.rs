@@ -198,35 +198,40 @@ impl Coinage {
     }
 }
 
+/// 走査結果 1 件（data 層 — 印字と分離。JSON 出力=Tier 3 judge 界面の第二消費者が要求・2026-07-09）。
 #[cfg(feature = "coinage")]
-pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
-    let CoinageArgs {
-        dict_dir,
-        allow: allow_files,
-        diff: diff_mode,
-        strict,
-        advisory,
-        files,
-    } = args;
-    let dict_dir = resolve_dict_dir(dict_dir)
+pub struct CoinageHit {
+    pub file: String,
+    pub line: usize,
+    pub compound: String,
+    pub components: Vec<String>,
+}
+
+/// 3 入力モード（diff / stdin / files）共通の走査。strict filter 適用済みの hit と
+/// allow-list 語数を返す。印字はしない（run_coinage と check --format json が消費する）。
+#[cfg(feature = "coinage")]
+pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
+    let dict_dir = resolve_dict_dir(args.dict_dir.clone())
         .context("--dict-dir か CORREO_DICT_DIR か $HOME/.cache/correo が必要")?;
-    let engine = Coinage::new(&dict_dir, &allow_files)
+    let engine = Coinage::new(&dict_dir, &args.allow)
         .context("engine 初期化失敗（--dict-dir か $CORREO_DICT_DIR で Sudachi 辞書を指定）")?;
 
-    let mut violations: Vec<String> = Vec::new();
-    let scan = |fname: &str, lineno: usize, line: &str, violations: &mut Vec<String>| {
+    let mut hits: Vec<CoinageHit> = Vec::new();
+    let scan = |fname: &str, lineno: usize, line: &str, hits: &mut Vec<CoinageHit>| {
         for (compound, parts) in engine.scan_line(line) {
-            if strict && !engine.is_strict_hit(&parts) {
+            if args.strict && !engine.is_strict_hit(&parts) {
                 continue;
             }
-            let surfs: Vec<&str> = parts.iter().map(|(s, _)| s.as_str()).collect();
-            violations.push(format!(
-                "{fname}:{lineno}: 「{compound}」は辞書見出し語でない複合 (components={surfs:?}) — 標準語へ書き直すか allow-list（--allow）に登録"
-            ));
+            hits.push(CoinageHit {
+                file: fname.to_string(),
+                line: lineno,
+                compound,
+                components: parts.iter().map(|(s, _)| s.clone()).collect(),
+            });
         }
     };
 
-    if diff_mode {
+    if args.diff {
         // stdin の unified diff (git diff -U0) から追加行のみ判定
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf).ok();
@@ -241,35 +246,54 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
             } else if let Some(added) = line.strip_prefix('+')
                 && !line.starts_with("+++")
             {
-                scan(&cur_file, lineno, added, &mut violations);
+                scan(&cur_file, lineno, added, &mut hits);
                 lineno += 1;
             }
             // -U0 では context 行は無い; 削除行 (-) は新 file 行番号を進めない
         }
-    } else if files.is_empty() {
+    } else if args.files.is_empty() {
+        // fence 内はコード例＝散文でない（strip は同数改行置換で行番号不変・prose.rs 共有）。
+        // diff モードは対象外: 断片に fence ペアの文脈が無く、対にならない ``` を誤爆させるより
+        // 追加行をそのまま見る方が安全。
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf).ok();
+        let buf = crate::prose::strip_fences(&buf);
         for (i, line) in buf.lines().enumerate() {
-            scan("-", i + 1, line, &mut violations);
+            scan("-", i + 1, line, &mut hits);
         }
     } else {
-        for f in &files {
+        for f in &args.files {
             match fs::read_to_string(f) {
                 Err(e) => eprintln!("correo coinage: {f} 読込失敗: {e} (skip)"),
                 Ok(t) => {
+                    let t = crate::prose::strip_fences(&t);
                     for (i, line) in t.lines().enumerate() {
-                        scan(f, i + 1, line, &mut violations);
+                        scan(f, i + 1, line, &mut hits);
                     }
                 }
             }
         }
     }
+    Ok((hits, engine.allow.len()))
+}
+
+#[cfg(feature = "coinage")]
+pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
+    let advisory = args.advisory;
+    let (hits, allow_len) = collect(&args)?;
+    let violations: Vec<String> = hits
+        .iter()
+        .map(|h| {
+            let surfs: Vec<&str> = h.components.iter().map(|s| s.as_str()).collect();
+            format!(
+                "{}:{}: 「{}」は辞書見出し語でない複合 (components={surfs:?}) — 標準語へ書き直すか allow-list（--allow）に登録",
+                h.file, h.line, h.compound
+            )
+        })
+        .collect();
 
     if violations.is_empty() {
-        println!(
-            "COINAGE PASS: 辞書外複合語なし (allowlist {} 語)",
-            engine.allow.len()
-        );
+        println!("COINAGE PASS: 辞書外複合語なし (allowlist {allow_len} 語)");
         Ok(0)
     } else if advisory {
         // locate 層（advisory）: 候補を報告し judge の 3-way 分類へ回す。blocking は
@@ -326,6 +350,30 @@ fn resolve_dict_dir(cli: Option<PathBuf>) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::sync::OnceLock;
+
+    #[test]
+    fn collect_skips_code_fences_in_file_mode() {
+        // 回帰 (2026-07-09 dogfood): README のコード例内の「構造腕」を造語 flag した実害。
+        // fence 内はコード＝散文でない。行番号は同数改行置換で不変。
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().expect("tmp");
+        write!(f, "構造腕を書く。\n\n```\n構造腕の例\n```\n").unwrap();
+        let args = CoinageArgs {
+            dict_dir: None,
+            allow: vec![],
+            diff: false,
+            strict: true,
+            advisory: true,
+            files: vec![f.path().display().to_string()],
+        };
+        let (hits, _) = collect(&args).expect("Sudachi 辞書が必要（mise run setup:sudachidict）");
+        let got: Vec<(String, usize)> = hits.iter().map(|h| (h.compound.clone(), h.line)).collect();
+        assert_eq!(
+            got,
+            vec![("構造腕".to_string(), 1)],
+            "fence 内が flag された: {got:?}"
+        );
+    }
 
     fn engine() -> &'static Coinage {
         static E: OnceLock<Coinage> = OnceLock::new();

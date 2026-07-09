@@ -12,9 +12,29 @@
 
 **木下軸**（機械が言い切れる床 — HARD）
 
-- **kinoshita** — 一文の長さ・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖。
+- **kinoshita** — 一文の長さ・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖・「の」3 連鎖・冗長表現（`することができ`→`できる`）。文頭接続詞の連発（また/さらに/そして…）は advisory（LLM 生成文の指紋・報告のみ）。
 
 slop 軸は locate 層であって judge ではない ── 候補を flag するだけで、domain か gratuitous かの最終判定は呼び出し側（LLM-judge か人）が下す。kinoshita 軸だけは機械判定が最終（blocking 可）。
+
+## machine 界面 — `check --format json`（Tier 3・judge 連携）
+
+全 finding を構造化 JSON で emit する。severity は `error`（HARD・exit 1 に数える）と `advisory`（locate 候補）の二値。「木で縛る」の正しい適用先は散文でなく **judge の入出力** — correo が座標を渡し、judge 側は structured output（JSON schema 制約）で分類を返す:
+
+```sh
+correo check --format json docs/*.md | your-judge --schema three-way.json
+```
+
+```json
+{ "version": 1,
+  "findings": [
+    { "detector": "kinoshita", "rule": "sentence-length", "file": "a.md", "line": 3,
+      "severity": "error", "message": "一文 128 字 (> 100) — 文を切る（一文一義）" },
+    { "detector": "coinage", "rule": "dictionary-coinage", "file": "a.md", "line": 7,
+      "severity": "advisory", "message": "「構造腕」は辞書見出し語でない複合 — …",
+      "data": { "compound": "構造腕", "components": ["構造", "腕"] } }
+  ],
+  "summary": { "error": 1, "advisory": 1 } }
+```
 
 ## roadmap — 木下被覆の層別
 

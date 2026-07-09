@@ -19,9 +19,18 @@ pub struct KinoshitaArgs {
     pub files: Vec<String>,
 }
 
+/// Hard = 機械判定が最終（blocking・exit に数える）。Advisory = 高精度 heuristic だが
+/// 文脈で正当があり得る（報告のみ・judge/人の確認へ回す — MIX tier）。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Hard,
+    Advisory,
+}
+
 pub struct Violation {
     pub line: usize,
     pub rule: &'static str,
+    pub severity: Severity,
     pub msg: String,
 }
 
@@ -46,12 +55,35 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
         Regex::new(r"(です|ます|ません|でした|ました|ましょう|でしょう|ください)[。！？]$")
             .unwrap();
     let plain = Regex::new(r"[ぁ-ん][。！？]$").unwrap();
+    // の連鎖（木下: 連続する「の」は 2 つまで）。この/その等の指示詞の の は連鎖に数えない。
+    let no_chain = Regex::new(r"(?:[^\s。、！？の]{1,12}の){3,}").unwrap();
+    // 冗長表現（簡潔の原則・第8章）: することができる → できる。LLM 日本語の頻出 slop。
+    let verbose = Regex::new(r"することが(でき|可能)").unwrap();
+    // 文頭接続詞（また/さらに/そして…、）の連発 — LLM 生成文の指紋。3 文連続で advisory。
+    let connector =
+        Regex::new(r"^(また|さらに|そして|加えて|一方|なお|ただし|つまり|次に|まず)、").unwrap();
 
     // 文抽出（fence/構造行/inline strip・行跨ぎ接続）は prose.rs の単一 home に委譲（2026-07-09）。
     let sents = crate::prose::sentences(text);
     let mut v = Vec::new();
     let mut polite_lines: Vec<usize> = Vec::new();
     let mut plain_lines: Vec<usize> = Vec::new();
+    // 文頭接続詞の連続 run（開始行, 本数）。3 本以上で advisory 1 件。
+    let mut conn_run: Option<(usize, usize)> = None;
+    fn flush_conn(run: &mut Option<(usize, usize)>, v: &mut Vec<Violation>) {
+        if let Some((line, n)) = run.take()
+            && n >= 3
+        {
+            v.push(Violation {
+                line,
+                rule: "connector-pileup",
+                severity: Severity::Advisory,
+                msg: format!(
+                    "文頭接続詞が {n} 文連続（また/さらに/そして…）— 論理の接続を本文で書く"
+                ),
+            });
+        }
+    }
 
     for (line, s) in &sents {
         let n = s.chars().count();
@@ -59,6 +91,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             v.push(Violation {
                 line: *line,
                 rule: "sentence-length",
+                severity: Severity::Hard,
                 msg: format!("一文 {n} 字 (> {max_sentence}) — 文を切る（一文一義）"),
             });
         }
@@ -67,6 +100,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             v.push(Violation {
                 line: *line,
                 rule: "max-ten",
+                severity: Severity::Hard,
                 msg: format!("読点 {ten} 個 (> {max_ten}) — 文を分割するか構造を変える"),
             });
         }
@@ -74,6 +108,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             v.push(Violation {
                 line: *line,
                 rule: "double-negative",
+                severity: Severity::Hard,
                 msg: format!("慣用二重否定「{}…」— 肯定形で言い切る", m.as_str()),
             });
         }
@@ -82,6 +117,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             v.push(Violation {
                 line: *line,
                 rule: "hedge-pileup",
+                severity: Severity::Hard,
                 msg: format!(
                     "ぼかし連発 ({}) — 言い切るか、根拠を添えて 1 つに絞る",
                     hedges.join("・")
@@ -92,8 +128,44 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             v.push(Violation {
                 line: *line,
                 rule: "demonstrative-chain",
+                severity: Severity::Hard,
                 msg: "指示語 3 つ以上 — 指す対象を名詞で書き直す".to_string(),
             });
+        }
+        if let Some(m) = no_chain.find(s) {
+            // 指示詞（こ/そ/あ/ど）の の は連鎖に数えない: このAのBのC は content 2 で不問。
+            let content = m
+                .as_str()
+                .split('の')
+                .filter(|x| !x.is_empty() && !matches!(*x, "こ" | "そ" | "あ" | "ど"))
+                .count();
+            if content >= 3 {
+                v.push(Violation {
+                    line: *line,
+                    rule: "no-chain",
+                    severity: Severity::Hard,
+                    msg: format!(
+                        "「の」3 連鎖（{}…）— 語順を変えるか複合語/句へ畳む",
+                        m.as_str()
+                    ),
+                });
+            }
+        }
+        if verbose.is_match(s) {
+            v.push(Violation {
+                line: *line,
+                rule: "verbose-potential",
+                severity: Severity::Hard,
+                msg: "「することができ…」— 「できる」で言い切る（簡潔）".to_string(),
+            });
+        }
+        if connector.is_match(s) {
+            match conn_run.as_mut() {
+                Some((_, n)) => *n += 1,
+                None => conn_run = Some((*line, 1)),
+            }
+        } else {
+            flush_conn(&mut conn_run, &mut v);
         }
         if polite.is_match(s) {
             polite_lines.push(*line);
@@ -101,6 +173,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             plain_lines.push(*line);
         }
     }
+    flush_conn(&mut conn_run, &mut v);
 
     if !polite_lines.is_empty() && !plain_lines.is_empty() {
         // 少数派の文体を violation として指す（直す対象が明確になる）。
@@ -113,6 +186,7 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             v.push(Violation {
                 line: *l,
                 rule: "style-mixing",
+                severity: Severity::Hard,
                 msg: format!(
                     "文体混在: この文だけ{name}体 (敬体 {} 文 / 常体 {} 文) — どちらかへ統一",
                     polite_lines.len(),
@@ -125,13 +199,24 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
     v
 }
 
-/// CLI entry。violation があれば exit 1（--advisory で 0）— HARD 床なので blocking 可能。
+/// CLI entry。Hard violation があれば exit 1（--advisory で 0）。Advisory 規則は報告のみで
+/// exit に数えない（MIX tier — judge/人の確認へ回す）。
 pub fn run_kinoshita(args: KinoshitaArgs) -> i32 {
-    let mut total = 0usize;
+    let mut hard = 0usize;
+    let mut adv = 0usize;
     let mut report = |label: &str, text: &str| {
         for x in scan(text, args.max_sentence, args.max_ten) {
-            total += 1;
-            println!("{label}L{}: [{}] {}", x.line, x.rule, x.msg);
+            let tag = match x.severity {
+                Severity::Hard => {
+                    hard += 1;
+                    ""
+                }
+                Severity::Advisory => {
+                    adv += 1;
+                    "·advisory"
+                }
+            };
+            println!("{label}L{}: [{}{tag}] {}", x.line, x.rule, x.msg);
         }
     };
     if args.files.is_empty() {
@@ -146,16 +231,19 @@ pub fn run_kinoshita(args: KinoshitaArgs) -> i32 {
             }
         }
     }
-    if total == 0 {
+    if hard == 0 && adv == 0 {
         println!(
-            "KINOSHITA PASS: Tier1 違反なし（文長・読点・文体混在・二重否定・ぼかし・指示語）"
+            "KINOSHITA PASS: Tier1 違反なし（文長・読点・文体混在・二重否定・ぼかし・指示語・の連鎖・冗長）"
         );
         0
+    } else if hard == 0 {
+        println!("KINOSHITA PASS: HARD 違反なし（advisory {adv} 件 — judge/人が確認）");
+        0
     } else if args.advisory {
-        println!("KINOSHITA CANDIDATES: {total} 件（advisory）");
+        println!("KINOSHITA CANDIDATES: HARD {hard} 件 + advisory {adv} 件（advisory mode）");
         0
     } else {
-        println!("KINOSHITA FAIL: {total} 件");
+        println!("KINOSHITA FAIL: {hard} 件（+ advisory {adv} 件）");
         1
     }
 }
@@ -229,6 +317,47 @@ mod tests {
         // 統一されていれば無違反。
         let uni = "本手法は誤差を半減する。\n測定は三回行った。";
         assert!(scan(uni, 100, 4).is_empty());
+    }
+
+    #[test]
+    fn flags_no_chain_but_not_demonstratives() {
+        let bad = "本手法の評価の結果の妥当性を検証する。";
+        assert!(scan(bad, 100, 4).iter().any(|x| x.rule == "no-chain"));
+        // この の「の」は指示詞の一部 — content 2 なので不問。
+        let ok = "この本の著者の意見を述べる。";
+        assert!(scan(ok, 100, 4).iter().all(|x| x.rule != "no-chain"));
+    }
+
+    #[test]
+    fn flags_verbose_potential() {
+        let bad = "同じ結果を再現することができます。";
+        assert!(
+            scan(bad, 100, 4)
+                .iter()
+                .any(|x| x.rule == "verbose-potential")
+        );
+        let ok = "同じ結果を再現できます。";
+        assert!(
+            scan(ok, 100, 4)
+                .iter()
+                .all(|x| x.rule != "verbose-potential")
+        );
+    }
+
+    #[test]
+    fn connector_pileup_is_advisory_and_needs_three() {
+        let bad = "また、測定を行った。さらに、解析を行った。そして、結論を得た。";
+        let v = scan(bad, 100, 4);
+        let c: Vec<_> = v.iter().filter(|x| x.rule == "connector-pileup").collect();
+        assert_eq!(c.len(), 1);
+        assert!(matches!(c[0].severity, Severity::Advisory));
+        // 2 連続は不問（普通の文章にもある）。
+        let ok = "また、測定を行った。さらに、解析を行った。";
+        assert!(
+            scan(ok, 100, 4)
+                .iter()
+                .all(|x| x.rule != "connector-pileup")
+        );
     }
 
     #[test]

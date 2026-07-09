@@ -16,3 +16,4 @@ pub mod codemix;
 pub mod coinage;
 pub mod kinoshita;
 pub mod prose;
+pub mod report;

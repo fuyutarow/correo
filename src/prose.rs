@@ -16,14 +16,23 @@ pub struct ProseUnit {
     pub text: String,
 }
 
+/// code fence を同数改行に置換して除去する（行番号不変）。fence 内はコード＝散文でない。
+/// coinage の file/stdin モードも共有する（README のコード例内の語を造語として flag した
+/// 実害の是正・2026-07-09 dogfood）。
+pub fn strip_fences(text: &str) -> String {
+    let fence = Regex::new(r"(?s)```.*?```").unwrap();
+    fence
+        .replace_all(text, |c: &regex::Captures| {
+            "\n".repeat(c[0].matches('\n').count())
+        })
+        .into_owned()
+}
+
 /// 全文 → 行構造を保った「散文だけの」テキスト。
 /// fence は同数改行置換で除去・空白のみ行（space/tab/全角）は空行化・表 `|` / 見出し `#` 行は
 /// 空行化（位置保持）・inline code / URL / §ref / ledger id は文中から strip。
 fn clean_lines(text: &str) -> String {
-    let fence = Regex::new(r"(?s)```.*?```").unwrap();
-    let defenced = fence.replace_all(text, |c: &regex::Captures| {
-        "\n".repeat(c[0].matches('\n').count())
-    });
+    let defenced = strip_fences(text);
     let strip = Regex::new(r"`[^`]*`|https?://\S+|§\S+|R\d{4}_\d+|IF-\d").unwrap();
     let mut out = String::new();
     for (i, raw) in defenced.lines().enumerate() {

@@ -23,10 +23,14 @@ run = "cargo test"
 description = "release build（配布 binary）"
 run = "cargo build --release"
 
+[tasks."lint:self"]
+description = "dogfood: correo で自分の README を lint（allow-list=docs/vocab.md・kinoshita HARD が ratchet・coinage 新語は advisory に浮く）"
+run = "cargo run --quiet -- check --allow docs/vocab.md README.md"
+
 # 集約 gate（CI 相当）。cargo check は入れない: clippy がコンパイル＋lint を兼ねる上位互換ゆえ重複。
 [tasks.check]
-description = "全 gate 集約: fmt:check + lint + test"
-depends = ["fmt:check", "lint", "test"]
+description = "全 gate 集約: fmt:check + lint + test + lint:self"
+depends = ["fmt:check", "lint", "test", "lint:self"]
 
 [tasks."setup:sudachidict"]
 description = "Sudachi 辞書(core) を sudachidict-core wheel から ~/.cache/correo へ抽出（coinage の live エンジン用・resolve_dict_dir の最終 fallback と一致・要 uv）"

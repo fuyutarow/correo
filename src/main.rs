@@ -5,7 +5,13 @@
 use std::path::PathBuf;
 use std::process::exit;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum Format {
+    Text,
+    Json,
+}
 
 #[derive(Parser)]
 #[command(
@@ -45,6 +51,9 @@ enum Command {
         /// kinoshita: 一文の最大読点数
         #[arg(long, default_value_t = 4)]
         max_ten: usize,
+        /// 出力形式（text=人向け / json=Tier3 judge 界面・機械可読）
+        #[arg(long, value_enum, default_value_t = Format::Text)]
+        format: Format,
         /// 対象 file（stdin 不可 — 複数検出器が同じ入力を読むため file 指定必須）
         #[arg(required = true)]
         files: Vec<String>,
@@ -105,6 +114,7 @@ fn main() {
             allow,
             max_sentence,
             max_ten,
+            format,
             files,
         } => {
             // 1 コマンド＝全 gate。blocking は kinoshita（HARD 床）のみ。codemix は advisory、
@@ -116,6 +126,95 @@ fn main() {
                 .iter()
                 .flat_map(|p| correo::codemix::domain_vocab(p))
                 .collect();
+
+            // Tier 3 judge 界面: 全 finding を JSON で emit（severity: error=HARD / advisory=候補）。
+            // exit は error 有無のみで決まる — advisory は judge へ渡す座標であって失敗ではない。
+            if format == Format::Json {
+                let mut findings: Vec<correo::report::Finding> = Vec::new();
+                for f in &files {
+                    let text = match std::fs::read_to_string(f) {
+                        Err(e) => {
+                            eprintln!("correo check: {f} 読込失敗: {e} (skip)");
+                            continue;
+                        }
+                        Ok(t) => t,
+                    };
+                    for p in correo::codemix::scan_paragraphs(&text, &exempt) {
+                        if p.density >= threshold {
+                            findings.push(correo::report::Finding {
+                                detector: "codemix",
+                                rule: "latin-density".into(),
+                                file: f.clone(),
+                                line: p.line,
+                                severity: "advisory",
+                                message: format!(
+                                    "{:.0} latin/100字 (JA {} chars) — 3-way 分類（domain/pinned/gratuitous）へ",
+                                    p.density, p.ja_chars
+                                ),
+                                data: Some(serde_json::json!({
+                                    "density": p.density,
+                                    "ja_chars": p.ja_chars,
+                                    "vocab": p.vocab,
+                                })),
+                            });
+                        }
+                    }
+                    for x in correo::kinoshita::scan(&text, max_sentence, max_ten) {
+                        findings.push(correo::report::Finding {
+                            detector: "kinoshita",
+                            rule: x.rule.into(),
+                            file: f.clone(),
+                            line: x.line,
+                            severity: match x.severity {
+                                correo::kinoshita::Severity::Hard => "error",
+                                correo::kinoshita::Severity::Advisory => "advisory",
+                            },
+                            message: x.msg,
+                            data: None,
+                        });
+                    }
+                }
+                #[cfg(feature = "coinage")]
+                {
+                    let a = correo::coinage::CoinageArgs {
+                        dict_dir: None,
+                        allow: allow.iter().map(|p| p.display().to_string()).collect(),
+                        diff: false,
+                        strict: true,
+                        advisory: true,
+                        files: files.clone(),
+                    };
+                    match correo::coinage::collect(&a) {
+                        Ok((hits, _)) => {
+                            for h in hits {
+                                findings.push(correo::report::Finding {
+                                    detector: "coinage",
+                                    rule: "dictionary-coinage".into(),
+                                    file: h.file,
+                                    line: h.line,
+                                    severity: "advisory",
+                                    message: format!(
+                                        "「{}」は辞書見出し語でない複合 — judge が 自然/allow 登録/確定造語 を分類",
+                                        h.compound
+                                    ),
+                                    data: Some(serde_json::json!({
+                                        "compound": h.compound,
+                                        "components": h.components,
+                                    })),
+                                });
+                            }
+                        }
+                        Err(e) => eprintln!("correo check: coinage skip ({e})"),
+                    }
+                }
+                let report = correo::report::Report::new(findings);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).expect("report serialize")
+                );
+                exit(if report.summary.error > 0 { 1 } else { 0 });
+            }
+
             let mut code = correo::codemix::codemix(threshold, &files, &exempt); // 常に 0
             code = code.max(correo::kinoshita::run_kinoshita(
                 correo::kinoshita::KinoshitaArgs {
