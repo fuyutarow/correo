@@ -2,20 +2,32 @@
 
 日本語実用文の lint — LLM slop（言語の不自然さ）と、木下是雄『理科系の作文技術』の原則のうち**機械的に判定できるもの**を検査する。**事実性・hype は対象外**。
 
-検出器は二系統:
+検出器は「検査する性質」で分ける。規則の出自 — 木下の章・textlint 移植・独自 — は module の名前で示さず、後述の表が規則ごとに記録する。
 
-**LLM slop の検出**（機械が混ぜた非母語的な日本語。候補を挙げるだけで判定しない）
+**言語の自然さ**（機械が混ぜた非母語的な日本語。候補を挙げるだけで判定しない）
 
 - **codemix** — 地の文の latin/100字 密度（ルー語）。識別子・ALLCAPS 略語・allow-list に登録した語は除外。
 - **coinage** — Sudachi 形態素解析で辞書外の複合語（不自然な造語・`slop軸` のような混種語も含む）を候補として挙げる。corpus（実在の語彙表）を設定すると、**実在が証明できた複合（`物理層`）を候補から消して** judge へ渡すノイズを減らす。不在は error にしない — `使用例` のような生産的複合はどんな有限の語彙表にも載らないため、**不在≠造語**。造語の確定は judge が下し、その裁定は `[deny]` が永続化する（`機械床` の再侵入は HARD で落ちる）。
 - **calque** — 英語動詞を「する/される」に直接接ぐ code-switching（`deployする`・`inspireされた`）。狭義のみを決定論で扱う — 広義の翻訳調（が行われ 等）は丁寧な人間文書にも現れるため（qoed corpus で が行われ×12 を実測・2026-07-09）、judge の領分。
 
-**木下原則の検査**（機械が言い切れる判定だけ — HARD）
+**可読性・トーンの床 — kinoshita**（木下是雄に根拠を持つ規則だけを置く・HARD 中心）
 
-- **kinoshita** — 一文の長さ・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖・「の」3 連鎖・冗長表現（`することができ`→`できる`）。advisory（報告のみ）の構造規則: 文頭接続詞の連発・同じ書き出しが続く文・「太字見出し＋コロン」が並ぶ箇条書き — いずれも LLM が生成した文の指紋。
-- **slop-phrase（組み込み deny）** — LLM 常套句（`架け橋となる`・`可能性を解き放つ`・`いかがでしたか` 等）を出荷時の裁定として HARD で弾く。Vale の style package 配布に相当する「意見のある既定」— 解除はその語を allow に書く（拒否権は利用者にある）。
+- 一文の長さ・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖・「の」3 連鎖・冗長表現（`することができ`→`できる`）。advisory は漢字 7 連続と感嘆符。
 
-slop の検出器（codemix / coinage / calque）は候補を flag するだけで判定しない。domain か gratuitous かの裁定は呼び出し側（LLM-judge か人）が下す。kinoshita だけは機械判定が最終（blocking 可）。
+**定型構造 — structure**（LLM layout の指紋・全て advisory）
+
+- 「太字見出し＋コロン」が並ぶ箇条書き・同じ書き出しが続く文・文頭接続詞の連発・述語＋コロンで箇条書きへ接続（英語直訳調）。木下に無い規則なので kinoshita とは別 home（2026-07-09 再分割）。
+
+**情報密度 — density**（advisory）
+
+- 圧縮率（bits/字）で薄い反復を検出。段落の近重複も字 bigram 類似で検出。
+
+**語彙の裁定 — deny**
+
+- **slop-phrase（組み込み）** — LLM 常套句（`架け橋となる`・`可能性を解き放つ`・`いかがでしたか` 等）を出荷時の裁定として HARD で弾く。Vale の style 配布物に相当する「意見のある既定」— 解除はその語を allow に書く（拒否権は利用者にある）。
+- **denied-term** — correo.toml の `[deny]`（judge が確定した裁定の永続 cache）。
+
+locate/judge の分業: kinoshita の HARD と deny だけ機械判定が最終（exit 1）。他は候補を flag するだけで、domain か gratuitous かの裁定は呼び出し側（LLM-judge か人）が下す。
 
 ## machine 界面 — `check --format json`（Tier 3・judge 連携）
 
@@ -55,6 +67,34 @@ Vale の規則類型との対応（何が在り、何が roadmap か）:
 | conditional（用語の初出定義） | roadmap |
 | capitalization（見出し体裁） | roadmap（体言止め統一 等） |
 | Packages（style 配布） | 組み込み既定＋`[extends]` は roadmap |
+
+## 規則台帳 — 性質×機構×出自
+
+module 分割は性質で切り、出自はこの表が規則ごとに記す。出自を module の名前で示すのはやめた — bullet-template は木下の規則ではない（2026-07-09 再分割の理由）。
+
+| 規則 | 性質 | 機構 | 出自 | severity |
+|---|---|---|---|---|
+| codemix/latin-density | 言語の自然さ | latin/100字 密度 | 独自（qoed 由来） | advisory |
+| calque/verb-calque | 言語の自然さ | regex（latin＋する/され 接合） | 独自（qoed 設計） | advisory |
+| coinage/dictionary-coinage | 言語の自然さ | Sudachi C 単位×辞書 membership×corpus 照合 | 独自 | advisory |
+| kinoshita/sentence-length | 可読性 | 文字数 | 木下（一文一義） | error |
+| kinoshita/max-ten | 可読性 | 読点数 | 木下 | error |
+| kinoshita/no-chain | 可読性 | regex＋題名 mask | 木下（「の」は 2 つまで） | error |
+| kinoshita/double-negative | 可読性 | regex | 木下（言い切り） | error |
+| kinoshita/hedge-pileup | トーン | regex・文内 2+ | 木下（言い切り） | error |
+| kinoshita/demonstrative-chain | 可読性 | regex・文内 3+ | 木下 | error |
+| kinoshita/verbose-potential | 可読性 | regex（`--write` 対応） | 木下（簡潔）。ja-no-redundant-expression 相当 | error |
+| kinoshita/style-mixing | トーン | 文末分類×文書集計 | 木下。no-mix-dearu-desumasu 相当 | error |
+| kinoshita/kanji-run | 可読性 | regex 7 連続+ | textlint 移植（max-kanji-continuous-len） | advisory |
+| kinoshita/exclamation | トーン | regex | 木下＋textlint（no-exclamation-question-mark） | advisory |
+| structure/bullet-template | 定型構造 | 行 regex×3 連続 | 独自。no-ai-list-formatting 相当 | advisory |
+| structure/opener-repetition | 定型構造 | 接頭 6 字×3 文連続 | 独自 | advisory |
+| structure/connector-pileup | 定型構造 | regex×3 文連続 | 独自。ai-tech-writing-guideline 相当 | advisory |
+| structure/colon-continuation | 定型構造 | ひらがな＋コロン→block 隣接 | preset-ai-writing 移植（Sudachi 不要化） | advisory |
+| density/low-information-density | 情報密度 | deflate 圧縮率 < 11 bits/字 | 独自（Shannon） | advisory |
+| density/near-duplicate | 情報密度 | 字 bigram 類似 ≥ 0.65 | 独自 | advisory |
+| deny/slop-phrase | 語彙の裁定 | 語幹辞書（組み込み 14 語） | 独自＋preset-ai-writing hype 辞書から精度選別 | error |
+| deny/denied-term | 語彙の裁定 | user 辞書（correo.toml） | judge の確定裁定 | error |
 
 ## roadmap — 木下原則の被覆計画
 
@@ -120,8 +160,9 @@ git diff -U0 | correo coinage --diff --strict --advisory
 correo kinoshita report.md
 ```
 
-`check` の指摘は `file:line: [検出器/規則] 説明` の一行形式。exit 1 になるのは kinoshita の
-HARD 違反だけで、codemix と coinage(strict) は advisory（judge へ渡す候補）として数える。
+`check` の指摘は `file:line: [検出器/規則] 説明` の一行形式。exit 1 に数えるのは error
+（kinoshita の HARD 違反と deny）。codemix・coinage・calque・structure・density は
+advisory（judge へ渡す候補）として数える。
 `--no-default-features` でビルドすると coinage を外した純 codemix になる（Sudachi 依存なし）。
 
 ## 設定 — correo.toml（自動発見・無くても動く）

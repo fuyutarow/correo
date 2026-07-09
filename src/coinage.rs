@@ -307,6 +307,11 @@ pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
         std::io::stdin().read_to_string(&mut buf).ok();
         let buf = crate::prose::strip_fences(&buf);
         for (i, line) in buf.lines().enumerate() {
+            // markdown 表は構造データで散文でない — cell の圧縮表記（読点数・文連続 等）を
+            // 造語候補にしない（README 規則台帳で実測した FP class・2026-07-09）。
+            if line.trim_start().starts_with('|') {
+                continue;
+            }
             scan("-", i + 1, &inline.replace_all(line, ""), &mut hits);
         }
     } else {
@@ -317,6 +322,9 @@ pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
                 Ok(t) => {
                     let t = crate::prose::strip_fences(&t);
                     for (i, line) in t.lines().enumerate() {
+                        if line.trim_start().starts_with('|') {
+                            continue; // 表は散文でない（stdin 側と同じ規約）
+                        }
                         scan(f, i + 1, &inline.replace_all(line, ""), &mut hits);
                     }
                 }

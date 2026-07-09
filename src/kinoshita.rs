@@ -1,6 +1,9 @@
-// kinoshita.rs — 木下是雄『理科系の作文技術』HARD 層（機械が言い切れる床）の lint。
+// kinoshita.rs — 木下是雄『理科系の作文技術』に根拠を持つ可読性・トーンの床（機械が言い切れる判定）。
 // Tier 1（2026-07-09 スコープ拡張・決定的実験「木下違反まみれ文書に correo 両検出器 PASS」の是正）:
 //   文長・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖。
+// 2026-07-09 再分割: LLM 定型構造の 4 規則（bullet-template・opener-repetition・
+// connector-pileup・colon-continuation）は structure.rs へ移動 — 木下に無い規則を木下の名の
+// 下に置くのは出自の偽装だった。検出器 = 検査する性質 1 つ・出自は規則ごとに README 規則台帳へ。
 // 対象外（locate 哲学の分業・README roadmap 参照）:
 //   Tier 2 = 係り受けが要る原則（逆茂木・主述近接）→ proxy 化して flag のみ（順次）。
 //   Tier 3 = judge が要る原則（トピックセンテンス・事実と意見・スリカエ）→ LLM-judge へ座標を渡す。
@@ -19,20 +22,7 @@ pub struct KinoshitaArgs {
     pub files: Vec<String>,
 }
 
-/// Hard = 機械判定が最終（blocking・exit に数える）。Advisory = 高精度 heuristic だが
-/// 文脈で正当があり得る（報告のみ・judge/人の確認へ回す — MIX tier）。
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Severity {
-    Hard,
-    Advisory,
-}
-
-pub struct Violation {
-    pub line: usize,
-    pub rule: &'static str,
-    pub severity: Severity,
-    pub msg: String,
-}
+pub use crate::report::{Severity, Violation};
 
 /// Tier 1 の全規則を走らせ違反を列挙する（判定は全て機械的＝HARD。密度系は「連発/連鎖」の
 /// 閾値で単発を許す — 単発のぼかしが妥当かは Tier 3 の judge 領分で、ここでは咎めない）。
@@ -62,9 +52,6 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
     let title_span = Regex::new(r"『[^』]*』").unwrap();
     // 冗長表現（簡潔の原則・第8章）: することができる → できる。LLM 日本語の頻出 slop。
     let verbose = Regex::new(r"することが(でき|可能)").unwrap();
-    // 文頭接続詞（また/さらに/そして…、）の連発 — LLM 生成文の指紋。3 文連続で advisory。
-    let connector =
-        Regex::new(r"^(また|さらに|そして|加えて|一方|なお|ただし|つまり|次に|まず)、").unwrap();
     // 7 連続以上の漢字（読みにくい漢語の塊・textlint max-kanji-continuous-len 相当）。
     // 分野の固有名（電子情報通信工学専攻）は正当なので advisory — 分割 or 固有名なら無視。
     let kanji_run = Regex::new(r"[\p{Han}々]{7,}").unwrap();
@@ -76,131 +63,6 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
     let mut v = Vec::new();
     let mut polite_lines: Vec<usize> = Vec::new();
     let mut plain_lines: Vec<usize> = Vec::new();
-    // 文頭接続詞の連続 run（開始行, 本数）。3 本以上で advisory 1 件。
-    let mut conn_run: Option<(usize, usize)> = None;
-    fn flush_conn(run: &mut Option<(usize, usize)>, v: &mut Vec<Violation>) {
-        if let Some((line, n)) = run.take()
-            && n >= 3
-        {
-            v.push(Violation {
-                line,
-                rule: "connector-pileup",
-                severity: Severity::Advisory,
-                msg: format!(
-                    "文頭接続詞が {n} 文連続（また/さらに/そして…）— 論理の接続を本文で書く"
-                ),
-            });
-        }
-    }
-
-    // 構造 slop（LLM の定型 layout・2026-07-09 「slop パターンは限定的」の議論より）:
-    // 「- **見出し**: 説明」形式の箇条書きが 3 連続 — 生成文の指紋（革新性：/効率性： の列）。
-    let bullet_tpl = Regex::new(r"^[ \t]*[-*+][ \t]\*\*[^*]+\*\*[:：]").unwrap();
-    let defenced = crate::prose::strip_fences(text);
-    let mut tpl_run: Option<(usize, usize)> = None; // (開始行, 本数)
-    for (i, raw) in defenced.lines().enumerate() {
-        if bullet_tpl.is_match(raw) {
-            match tpl_run.as_mut() {
-                Some((_, n)) => *n += 1,
-                None => tpl_run = Some((i + 1, 1)),
-            }
-        } else {
-            if let Some((line, n)) = tpl_run.take()
-                && n >= 3
-            {
-                v.push(Violation {
-                    line,
-                    rule: "bullet-template",
-                    severity: Severity::Advisory,
-                    msg: format!(
-                        "太字見出し＋コロンの箇条書きが {n} 連続 — LLM の定型 layout。散文か表を検討"
-                    ),
-                });
-            }
-        }
-    }
-    if let Some((line, n)) = tpl_run.take()
-        && n >= 3
-    {
-        v.push(Violation {
-            line,
-            rule: "bullet-template",
-            severity: Severity::Advisory,
-            msg: format!(
-                "太字見出し＋コロンの箇条書きが {n} 連続 — LLM の定型 layout。散文か表を検討"
-            ),
-        });
-    }
-
-    // 述語＋コロンで block（箇条書き/コード等）へ接続 — 英語 "Do the following:" の直訳調
-    // （@textlint-ja no-ai-colon-continuation の Sudachi 不要 port・2026-07-09 harvest 採録）。
-    // 名詞受け（使用方法:）は正当なので、コロン直前が「ひらがな＝述語的」の時だけ advisory。
-    let pred_colon = Regex::new(r"[ぁ-ん][:：]\s*$").unwrap();
-    let block_start = Regex::new(r"^[ \t]*(?:[-*+][ \t]|・|[0-9０-９]+[.．)]|```|>|\|)").unwrap();
-    {
-        let lines: Vec<&str> = defenced.lines().collect();
-        for (i, raw) in lines.iter().enumerate() {
-            if !pred_colon.is_match(raw.trim_end()) {
-                continue;
-            }
-            if let Some(next) = lines[i + 1..].iter().find(|l| !l.trim().is_empty())
-                && block_start.is_match(next)
-            {
-                v.push(Violation {
-                    line: i + 1,
-                    rule: "colon-continuation",
-                    severity: Severity::Advisory,
-                    msg: "述語＋コロンで箇条書きへ接続 — 英語の直訳調。「次の通り。」で切るか名詞で受ける"
-                        .to_string(),
-                });
-            }
-        }
-    }
-
-    // 同じ書き出しの文の連続（3 文以上）— LLM 生成文のもう一つの指紋。文頭接続詞
-    // （connector-pileup が担当）と重複しないよう、接続詞書き出しは対象外。
-    let opener_of = |s: &str| -> String {
-        s.chars()
-            .take_while(|c| !matches!(c, '、' | '。' | '！' | '？'))
-            .take(6)
-            .collect()
-    };
-    let mut op_run: Option<(String, usize, usize)> = None; // (書き出し, 開始行, 本数)
-    for (line, s) in &sents {
-        let o = opener_of(s);
-        // bullet 行は対象外: 「- **Tier 1**…」「- **Tier 2**…」の列は正当な構造で、
-        // 接頭が揃うのは当然（2026-07-09 dogfood で実測した FP class）。
-        let is_bullet = matches!(s.chars().next(), Some('-' | '*' | '+' | '・' | '#'));
-        let eligible = o.chars().count() >= 2 && !connector.is_match(s) && !is_bullet;
-        match op_run.as_mut() {
-            Some((prev, _, n)) if eligible && *prev == o => *n += 1,
-            _ => {
-                if let Some((prev, start, n)) = op_run.take()
-                    && n >= 3
-                {
-                    v.push(Violation {
-                        line: start,
-                        rule: "opener-repetition",
-                        severity: Severity::Advisory,
-                        msg: format!("同じ書き出し「{prev}…」が {n} 文連続 — 構文を変える"),
-                    });
-                }
-                if eligible {
-                    op_run = Some((o, *line, 1));
-                }
-            }
-        }
-    }
-    if let Some((prev, start, n)) = op_run.take()
-        && n >= 3
-    {
-        v.push(Violation {
-            line: start,
-            rule: "opener-repetition",
-            severity: Severity::Advisory,
-            msg: format!("同じ書き出し「{prev}…」が {n} 文連続 — 構文を変える"),
-        });
-    }
 
     for (line, s) in &sents {
         let n = s.chars().count();
@@ -298,21 +160,12 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 msg: "感嘆符 ！ — 実用文では感情でなく事実で示す（木下）".to_string(),
             });
         }
-        if connector.is_match(s) {
-            match conn_run.as_mut() {
-                Some((_, n)) => *n += 1,
-                None => conn_run = Some((*line, 1)),
-            }
-        } else {
-            flush_conn(&mut conn_run, &mut v);
-        }
         if polite.is_match(s) {
             polite_lines.push(*line);
         } else if plain.is_match(s) {
             plain_lines.push(*line);
         }
     }
-    flush_conn(&mut conn_run, &mut v);
 
     if !polite_lines.is_empty() && !plain_lines.is_empty() {
         // 少数派の文体を violation として指す（直す対象が明確になる）。
@@ -530,39 +383,6 @@ mod tests {
     }
 
     #[test]
-    fn connector_pileup_is_advisory_and_needs_three() {
-        let bad = "また、測定を行った。さらに、解析を行った。そして、結論を得た。";
-        let v = scan(bad, 100, 4);
-        let c: Vec<_> = v.iter().filter(|x| x.rule == "connector-pileup").collect();
-        assert_eq!(c.len(), 1);
-        assert!(matches!(c[0].severity, Severity::Advisory));
-        // 2 連続は不問（普通の文章にもある）。
-        let ok = "また、測定を行った。さらに、解析を行った。";
-        assert!(
-            scan(ok, 100, 4)
-                .iter()
-                .all(|x| x.rule != "connector-pileup")
-        );
-    }
-
-    #[test]
-    fn flags_predicate_colon_before_block_but_allows_noun_colon() {
-        // 英語 "Do the following:" の直訳調（述語＋コロン→箇条書き）。名詞受けは正当。
-        let bad = "次の手順で設定を変更します:\n\n- 項目を開く。";
-        assert!(
-            scan(bad, 100, 4)
-                .iter()
-                .any(|x| x.rule == "colon-continuation")
-        );
-        let ok = "使用方法:\n\n- 項目を開く。";
-        assert!(
-            scan(ok, 100, 4)
-                .iter()
-                .all(|x| x.rule != "colon-continuation")
-        );
-    }
-
-    #[test]
     fn flags_long_kanji_run_advisory_but_not_short_terms() {
         // textlint max-kanji-continuous-len 相当。7+ を advisory で。
         let bad = "電子情報通信工学専攻に所属する。";
@@ -591,36 +411,6 @@ mod tests {
             scan("これは良い成果だ。", 100, 4)
                 .iter()
                 .all(|x| x.rule != "exclamation")
-        );
-    }
-
-    #[test]
-    fn flags_bullet_template_run_of_three() {
-        // 「- **見出し**: 説明」×3 連続 = LLM の定型 layout（革新性：/効率性： の列）。
-        let bad = "- **革新性**: 高い。\n- **効率性**: 速い。\n- **拡張性**: 広い。";
-        let hits: Vec<_> = scan(bad, 100, 4)
-            .into_iter()
-            .filter(|x| x.rule == "bullet-template")
-            .collect();
-        assert_eq!(hits.len(), 1);
-        assert!(matches!(hits[0].severity, Severity::Advisory));
-        let ok = "- **革新性**: 高い。\n- **効率性**: 速い。";
-        assert!(scan(ok, 100, 4).iter().all(|x| x.rule != "bullet-template"));
-    }
-
-    #[test]
-    fn flags_same_opener_three_sentences() {
-        let bad = "本製品は、速い。本製品は、安い。本製品は、強い。";
-        assert!(
-            scan(bad, 100, 4)
-                .iter()
-                .any(|x| x.rule == "opener-repetition")
-        );
-        let ok = "本製品は、速い。本製品は、安い。";
-        assert!(
-            scan(ok, 100, 4)
-                .iter()
-                .all(|x| x.rule != "opener-repetition")
         );
     }
 

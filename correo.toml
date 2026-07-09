@@ -9,8 +9,9 @@
 # 一回きりの言及は登録せず inline 抑制（<!-- correo-ignore -->）で逃がす。
 
 allow = [
-  # 製品・検出器の名前
+  # 製品・検出器・規則・設定キーの名前（README が自身の規則を説明するのに使う）
   "correo", "codemix", "coinage", "kinoshita", "calque", "sudachi", "prh",
+  "structure", "density", "deny", "allow", "cache", "slop-phrase", "denied-term", "style",
   # 分野の用語
   "slop", "locate", "judge", "llm-judge", "advisory", "blocking", "severity",
   "finding", "schema", "structured output", "allow-list", "latin", "code-switching",

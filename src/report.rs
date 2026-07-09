@@ -5,6 +5,22 @@
 // schema は追加互換で進化させる（version field・既存 key の意味は変えない）。
 use serde::Serialize;
 
+/// Hard = 機械判定が最終（blocking・exit に数える）。Advisory = 高精度 heuristic だが
+/// 文脈で正当があり得る（報告のみ・judge/人の確認へ回す）。
+/// 検出器横断の共通型（2026-07-09 再分割で kinoshita 専有から一段上げた — structure と共有）。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Hard,
+    Advisory,
+}
+
+pub struct Violation {
+    pub line: usize,
+    pub rule: &'static str,
+    pub severity: Severity,
+    pub msg: String,
+}
+
 #[derive(Serialize)]
 pub struct Finding {
     /// codemix | kinoshita | coinage

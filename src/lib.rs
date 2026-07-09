@@ -1,18 +1,19 @@
 //! correo — 日本語実用文の lint: LLM slop ＋ 木下是雄の原則のうち機械的に判定できるもの。
 //!
-//! 二軸を検査する（事実性・hype は対象外）:
-//! 「slop」＝**言語の不自然さ**（機械が混ぜた非母語的な日本語）——
-//! - `codemix`: 地の文の latin/100字 密度（ルー語の locate 層・識別子/ALLCAPS 略語/登録語は除外）。
-//! - `coinage`: Sudachi 形態素の辞書外複合（不自然な造語）検出。
-//! - `calque`: 英語動詞を する/される に直接接ぐ code-switching（deployする）の検出。狭義のみ —
-//!   広義の翻訳調（が行われ 等）は人間の丁寧な文書と重なるため judge の領分（実測 2026-07-09）。
+//! module 分割の原則（2026-07-09 再分割）: **検出器 = 検査する性質 1 つ**。規則の出自
+//! （木下の章・textlint 移植・house）は module でなく規則ごとに README の規則台帳が記録する。
+//! 検査する性質は 5 つ（事実性・hype は対象外）:
+//! - 言語の自然さ: `codemix`（ルー語密度）・`calque`（動詞カルク: deployする）・
+//!   `coinage`（Sudachi 辞書外複合 = 造語・混種語）
+//! - 可読性・トーンの床: `kinoshita`（文長・読点・文体混在・二重否定・ぼかし・指示語・
+//!   の連鎖・冗長・漢字連続・感嘆符 — 木下に根拠を持つ規則だけを置く）
+//! - 定型構造: `structure`（bullet-template・opener-repetition・connector-pileup・
+//!   colon-continuation — LLM layout の指紋。木下と無関係ゆえ別 home）
+//! - 情報密度: `density`（圧縮率 bits/字・段落近重複）
+//! - 語彙の裁定: `deny`（組み込み slop 常套句＋judge 確定裁定の永続 cache）
 //!
-//! 「木下 HARD 層」＝『理科系の作文技術』の**機械が言い切れる床**（2026-07-09 スコープ拡張）——
-//! - `kinoshita`: 文長・読点過多・ですます/である混在・慣用二重否定・ぼかし連発・指示語連鎖。
-//!
-//! slop 軸は locate 層であって judge でない ── 候補を flag し、domain か gratuitous かの判定は
-//! 呼び出し側（LLM-judge か人）へ委ねる。exempt 語彙（allow-list）は呼び出し側が注入する。
-//! kinoshita 軸だけは HARD（機械判定が最終）ゆえ blocking 可。
+//! 判定の分業: kinoshita の HARD と deny は機械判定が最終（blocking）。他は全て locate 層 —
+//! 候補を flag し、最終判定は呼び出し側（LLM-judge か人）へ委ねる。allow は呼び出し側が注入。
 pub mod calque;
 pub mod codemix;
 pub mod coinage;
@@ -22,4 +23,5 @@ pub mod deny;
 pub mod kinoshita;
 pub mod prose;
 pub mod report;
+pub mod structure;
 pub mod suppress;
