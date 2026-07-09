@@ -25,9 +25,23 @@ enum Command {
         /// 密度閾値（latin / 100 JA字）
         #[arg(long, default_value_t = 8.0)]
         threshold: f64,
-        /// exempt 語彙 allow-list（統制語彙の .md）
+        /// allow-list（除外語彙・統制語彙 registry の .md・複数可。coinage と同名 flag に統一）
         #[arg(long)]
-        exempt: Option<PathBuf>,
+        allow: Vec<PathBuf>,
+        /// 対象 file（無指定=stdin）
+        files: Vec<String>,
+    },
+    /// 木下是雄 HARD 層（文長・読点過多・文体混在・慣用二重否定・ぼかし連発・指示語連鎖）。
+    Kinoshita {
+        /// 一文の最大文字数
+        #[arg(long, default_value_t = 100)]
+        max_sentence: usize,
+        /// 一文の最大読点数
+        #[arg(long, default_value_t = 4)]
+        max_ten: usize,
+        /// 候補報告に留め exit 0
+        #[arg(long)]
+        advisory: bool,
         /// 対象 file（無指定=stdin）
         files: Vec<String>,
     },
@@ -57,14 +71,31 @@ fn main() {
     match Cli::parse().command {
         Command::Codemix {
             threshold,
-            exempt,
+            allow,
             files,
         } => {
-            // exempt の allow-list は明示注入（未指定＝空。識別子 / ALLCAPS の built-in 除外のみ効く）。
-            let exempt = exempt
-                .map(|p| correo::codemix::domain_vocab(&p))
-                .unwrap_or_default();
+            // allow-list は明示注入（未指定＝空。識別子 / ALLCAPS の built-in 除外のみ効く）。
+            // 複数 registry は union — coinage の --allow と同じ多重指定（flag 名統一・2026-07-09 F4）。
+            let exempt: std::collections::HashSet<String> = allow
+                .iter()
+                .flat_map(|p| correo::codemix::domain_vocab(p))
+                .collect();
             exit(correo::codemix::codemix(threshold, &files, &exempt));
+        }
+        Command::Kinoshita {
+            max_sentence,
+            max_ten,
+            advisory,
+            files,
+        } => {
+            exit(correo::kinoshita::run_kinoshita(
+                correo::kinoshita::KinoshitaArgs {
+                    max_sentence,
+                    max_ten,
+                    advisory,
+                    files,
+                },
+            ));
         }
         Command::Coinage {
             dict_dir,

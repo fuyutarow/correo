@@ -1,0 +1,25 @@
+# CI = ローカルと同一 gate の再利用: mise run check（fmt:check + clippy -D warnings + test）。
+# SSOT を mise.toml に置き、CI 側にコマンドを重複させない（drift 防止）。
+# coinage の test は Sudachi 辞書が要るため setup:sudachidict（要 uv）を先に走らせる。
+# action versions: gh api で実検証 2026-07-09（checkout v7 / rust-cache v2 / setup-uv v8 / mise v4）。
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v8
+      - uses: jdx/mise-action@v4
+      - name: Sudachi dictionary (coinage live engine)
+        run: mise run setup:sudachidict
+      - name: Aggregate gate (fmt:check + clippy + test)
+        run: mise run check

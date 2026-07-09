@@ -8,8 +8,8 @@ use std::path::Path;
 /// 密度から除外する既知 domain 語彙（＝「登録制」の exempt 源）を allow-md ファイルから作る。
 /// coinage の allow 源と同一形式の統制語彙 registry を codemix も consult する（融通機構・2026-07-06）。
 /// 抽出＝登録行 `| \`term …\` | gloss |` の term セルと gloss の latin token（lower・len≥2）。
-/// 呼び出し側が注入: 呼び出し側が allow-md パスを渡す（呼び出し側が allow-md を渡す（例:
-/// 汎用 binary は --exempt。ファイル不在なら空 exempt へ劣化）。
+/// 呼び出し側が allow-md パスを渡して注入する（汎用 binary は --allow・複数可＝union。
+/// ファイル不在なら空 exempt へ劣化）。
 pub fn domain_vocab(allow_md: &Path) -> HashSet<String> {
     let tax = fs::read_to_string(allow_md).unwrap_or_default();
     let row = Regex::new(r"^\|\s*`").unwrap();
@@ -42,7 +42,15 @@ pub struct Para {
 /// （dogfooding 実測: 表 347・実測 830 = 表行 artefact・2026-07-06）。
 /// JA 40 字未満の段落は密度が無意味なので除外。
 pub fn scan_paragraphs(text: &str, exempt: &HashSet<String>) -> Vec<Para> {
-    let strip = Regex::new(r"(?s)```.*?```|`[^`]*`|https?://\S+|§\S+|R\d{4}_\d+|IF-\d").unwrap();
+    // code fence は段落分割より【先】に全文から落とす（fence 内の空行が段落境界になると
+    // (?s)```.*?``` がペアを見失い、JA コメント付き code block の中身が地の文として計上される
+    // 実バグの是正・2026-07-09 F2）。置換は fence と同数の改行＝行番号不変（Para.line の
+    // 「編集で直接開ける」契約を守る）。fence 以外の strip 対象は行を跨がないので段落内で足りる。
+    let fence = Regex::new(r"(?s)```.*?```").unwrap();
+    let defenced = fence.replace_all(text, |c: &regex::Captures| {
+        "\n".repeat(c[0].matches('\n').count())
+    });
+    let strip = Regex::new(r"`[^`]*`|https?://\S+|§\S+|R\d{4}_\d+|IF-\d").unwrap();
     // token を full で捕え（識別子を割らない）、散文の code-mix だけを数える。除外:
     //   (1) 識別子＝`_` か数字を含む token（collective_only_residual・P3b・c_adaptive_pair）。
     //   (2) ALLCAPS 略語＝HTTP/API/YKL/PPT/RDM/CRB/JW 等の domain 略語（構造で判る・列挙不要＝融通）。
@@ -52,14 +60,56 @@ pub fn scan_paragraphs(text: &str, exempt: &HashSet<String>) -> Vec<Para> {
     let is_identifier = |t: &str| t.contains('_') || t.chars().any(|c| c.is_ascii_digit());
     let is_acronym = |t: &str| t.len() >= 2 && t.chars().all(|c| c.is_ascii_uppercase());
     let ja = Regex::new(r"[\p{Hiragana}\p{Katakana}\p{Han}]").unwrap();
-    // 段落境界（空行）を正規化し、開始行を追跡する。`\n \n`（空白のみの行）も境界扱い ──
-    // 置換で改行数は不変（どちらも 2 改行）ゆえ行カウントは正確。
-    let normalized = text.replace("\n \n", "\n\n");
-    let mut out = Vec::new();
+    // 段落境界（空行）を正規化し、開始行を追跡する。空白のみの行（space/tab/全角 space、
+    // 個数不問）を空行へ潰して境界扱い ── 行内容の削除のみで改行は不変ゆえ行カウントは正確
+    // （旧実装は "\n \n"＝space 1個のみ対応だった・2026-07-09 F5b 一般化）。
+    let blank = Regex::new(r"(?m)^[ \t\u{3000}]+$").unwrap();
+    let normalized = blank.replace_all(&defenced, "");
+    // 連続する bullet 段落は 1 行群へ併合してから測る（F1(b) 2026-07-09: 1 bullet ≒ 1 短段落は
+    // 40字床を割り、LLM slop の主戦場である箇条書きが丸ごと不可視だった）。bullet 段落＝非空行が
+    // 全て bullet marker（- * + ・ 番号）で始まる segment。完全空 segment（4+ 連続空行・fence 跡）
+    // は連鎖を切る。地の文段落とは併合しない。
+    let bullet = Regex::new(r"^(?:[-*+][ \t]|・|[0-9０-９]+[.．)])").unwrap();
+    let is_bullet_block = |seg: &str| {
+        let mut any = false;
+        for l in seg.lines() {
+            let t = l.trim_start();
+            if t.is_empty() {
+                continue;
+            }
+            if !bullet.is_match(t) {
+                return false;
+            }
+            any = true;
+        }
+        any
+    };
+    let mut units: Vec<(usize, String, bool)> = Vec::new(); // (開始行, 本文, bullet 行群か)
     let mut line = 1usize;
     for para in normalized.split("\n\n") {
-        let start_line = line;
+        // 3 連続以上の改行では segment が先頭 "\n" を抱える — その分を進めて開始行が
+        // 空行でなく本文行を指すようにする（off-by-one 是正・2026-07-09 F5a）。
+        let leading = para.len() - para.trim_start_matches('\n').len();
+        let start_line = line + leading;
         line += para.matches('\n').count() + 2; // 段落内の改行 ＋ 区切りの "\n\n"
+        if para.trim().is_empty() {
+            if let Some(last) = units.last_mut() {
+                last.2 = false; // 空 segment は bullet 連鎖を切る
+            }
+            continue;
+        }
+        let b = is_bullet_block(para);
+        match units.last_mut() {
+            Some((_, text, true)) if b => {
+                text.push('\n');
+                text.push_str(para);
+            }
+            _ => units.push((start_line, para.to_string(), b)),
+        }
+    }
+    let mut out = Vec::new();
+    for (start_line, para, _) in &units {
+        let start_line = *start_line;
         // 構造行を落として地の文だけ残す（段落全体が表/見出しなら空になり skip される）
         let prose: String = para
             .lines()
@@ -211,6 +261,91 @@ mod tests {
             "見出しが strip されず"
         );
         assert!(!v.contains(&"framework".to_string()), "表行が strip されず");
+    }
+
+    #[test]
+    fn strips_fence_containing_blank_lines_and_keeps_line_numbers() {
+        // 回帰 (2026-07-09 F2): 空行を含む fence は段落分割で泣き別れ、中身が地の文として
+        // 計上されていた。修正後は fence を分割前に全文から落とす（同数改行置換＝行番号不変）。
+        let exempt = HashSet::new();
+        // fence 中身に JA≥40 の行（現実には JA コメント付き code block）が無いと 40字床が
+        // 偶然救ってバグが見えない — JA を含む fence が真の再現形。
+        let text = format!(
+            "{} realword\n\n```\n{} fenceword framework\n\ncodeword\n```\n\n{} tailword",
+            ja(45),
+            ja(45),
+            ja(45)
+        );
+        let paras = scan_paragraphs(&text, &exempt);
+        assert_eq!(paras.len(), 2, "fence が段落として計上された");
+        for p in &paras {
+            assert!(
+                !p.vocab.contains(&"codeword".to_string())
+                    && !p.vocab.contains(&"fenceword".to_string())
+                    && !p.vocab.contains(&"framework".to_string()),
+                "fence 中身が地の文に漏れた: {:?}",
+                p.vocab
+            );
+        }
+        assert_eq!(paras[0].line, 1);
+        assert_eq!(paras[1].line, 9, "fence 除去で行番号がずれた"); // 1..7=文+fence, 9=tail
+    }
+
+    #[test]
+    fn paragraph_line_skips_leading_blank_lines() {
+        // 回帰 (2026-07-09 F5a): 3 連続改行で次段落の開始行が空行を指していた off-by-one。
+        let exempt = HashSet::new();
+        let text = format!("{} framework\n\n\n{} gratuitous", ja(45), ja(45));
+        let paras = scan_paragraphs(&text, &exempt);
+        assert_eq!(paras.len(), 2);
+        assert_eq!(paras[1].line, 4, "空行でなく本文行を指すべき"); // 1=文,2-3=空行,4=本文
+    }
+
+    #[test]
+    fn whitespace_only_lines_are_paragraph_boundaries() {
+        // 回帰 (2026-07-09 F5b): 旧実装は "\n \n"（space 1個）のみ対応。tab/複数 space/全角も境界。
+        let exempt = HashSet::new();
+        let text = format!("{} framework\n\t \n{} gratuitous", ja(45), ja(45));
+        let paras = scan_paragraphs(&text, &exempt);
+        assert_eq!(paras.len(), 2, "空白のみ行が段落境界にならず");
+        assert_eq!(paras[1].line, 3);
+    }
+
+    #[test]
+    fn groups_consecutive_bullet_paragraphs_over_the_40_char_floor() {
+        // F1(b) 2026-07-09: LLM slop こそ短い bullet に湧くのに、blank 行区切りの箇条書きは
+        // 各段落が 40字床を割って丸ごと不可視だった。連続する bullet 段落は 1 行群として集計する。
+        let exempt = HashSet::new();
+        let text = format!(
+            "- {} framework\n\n- {} gratuitous\n\n- {} slopword",
+            ja(20),
+            ja(15),
+            ja(18)
+        );
+        let paras = scan_paragraphs(&text, &exempt);
+        assert_eq!(paras.len(), 1, "bullet 行群が 1 単位に集計されていない");
+        assert_eq!(paras[0].line, 1);
+        assert_eq!(paras[0].ja_chars, 53);
+        for w in ["framework", "gratuitous", "slopword"] {
+            assert!(paras[0].vocab.contains(&w.to_string()), "{w} が欠落");
+        }
+    }
+
+    #[test]
+    fn bullet_group_does_not_merge_with_prose_paragraph() {
+        // 行群化は bullet 同士のみ — 直前直後の地の文段落とは併合しない。
+        let exempt = HashSet::new();
+        let text = format!(
+            "{} proseword\n\n- {} bulletword\n\n- {} another",
+            ja(45),
+            ja(25),
+            ja(25)
+        );
+        let paras = scan_paragraphs(&text, &exempt);
+        assert_eq!(paras.len(), 2, "prose と bullet が併合された/分離しすぎた");
+        assert!(paras[0].vocab.contains(&"proseword".to_string()));
+        assert!(paras[1].vocab.contains(&"bulletword".to_string()));
+        assert_eq!(paras[1].line, 3);
     }
 
     #[test]

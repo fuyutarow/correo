@@ -295,9 +295,11 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
     }
 }
 
-/// 辞書 dir の解決順:
-///   --dict-dir > $CORREO_DICT_DIR > exe 相対 ../share/correo/dict（brew の bundle 辞書・
-///   system.dic 存在で filter）> ~/.cache/correo。
+/// 辞書 dir の解決順: --dict-dir、次に $CORREO_DICT_DIR、次に exe 相対 ../share/correo/dict
+/// （brew の bundle 辞書）、最後に ~/.cache/correo（mise run setup:sudachidict の配置先）。
+/// 自動発見の 2 経路（exe 相対・cache）は system.dic 存在で filter — 空 dir を掴んで不明瞭な
+/// engine エラーになるのを防ぐ（2026-07-09）。明示指定（--dict-dir/env）は検証せず通す:
+/// ユーザ意図のある path は engine の実エラーを表面化させる方が診断に良い。
 /// exe 相対を挟むことで、brew install 後は env 無設定でも同梱辞書を掴む（out-of-box）。
 #[cfg(feature = "coinage")]
 fn resolve_dict_dir(cli: Option<PathBuf>) -> Option<PathBuf> {
@@ -313,6 +315,7 @@ fn resolve_dict_dir(cli: Option<PathBuf>) -> Option<PathBuf> {
             std::env::var("HOME")
                 .ok()
                 .map(|h| PathBuf::from(h).join(".cache/correo"))
+                .and_then(with_system_dic)
         })
 }
 
