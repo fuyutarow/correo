@@ -56,7 +56,10 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
             .unwrap();
     let plain = Regex::new(r"[ぁ-ん][。！？]$").unwrap();
     // の連鎖（木下: 連続する「の」は 2 つまで）。この/その等の指示詞の の は連鎖に数えない。
+    // 『…』引用タイトル内の の も数えない（『理科系の作文技術』の の は書名の一部 —
+    // 2026-07-09 dogfood で実測した FP class。タイトルは 1 名詞として ◯ にマスクして測る）。
     let no_chain = Regex::new(r"(?:[^\s。、！？の]{1,12}の){3,}").unwrap();
+    let title_span = Regex::new(r"『[^』]*』").unwrap();
     // 冗長表現（簡潔の原則・第8章）: することができる → できる。LLM 日本語の頻出 slop。
     let verbose = Regex::new(r"することが(でき|可能)").unwrap();
     // 文頭接続詞（また/さらに/そして…、）の連発 — LLM 生成文の指紋。3 文連続で advisory。
@@ -132,7 +135,8 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 msg: "指示語 3 つ以上 — 指す対象を名詞で書き直す".to_string(),
             });
         }
-        if let Some(m) = no_chain.find(s) {
+        let masked = title_span.replace_all(s, "◯");
+        if let Some(m) = no_chain.find(&masked) {
             // 指示詞（こ/そ/あ/ど）の の は連鎖に数えない: このAのBのC は content 2 で不問。
             let content = m
                 .as_str()
@@ -326,6 +330,9 @@ mod tests {
         // この の「の」は指示詞の一部 — content 2 なので不問。
         let ok = "この本の著者の意見を述べる。";
         assert!(scan(ok, 100, 4).iter().all(|x| x.rule != "no-chain"));
+        // 『…』引用タイトル内の の は書名の一部 — 連鎖に数えない（dogfood 実測 FP の回帰）。
+        let title = "木下是雄『理科系の作文技術』の原則の一部を検査する。";
+        assert!(scan(title, 100, 4).iter().all(|x| x.rule != "no-chain"));
     }
 
     #[test]

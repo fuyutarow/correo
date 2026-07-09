@@ -62,6 +62,15 @@ type Component = (String, [String; 3]);
 //   残 FP class（正直に）: 例/図/層/軸 tail（使用例・物理層 等）は辞書が接尾辞語義を持たず flag
 //   され得る — channel は allow-list 登録・深い治療は n-gram corpus か judge 層（advisory）。
 
+/// latin 語 token（ASCII 英数と -_ のみ・英字を含む）。混種語 run の latin 側成分。
+#[cfg(feature = "coinage")]
+fn is_latin_word(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && s.chars().any(|c| c.is_ascii_alphabetic())
+}
+
 #[cfg(feature = "coinage")]
 fn is_kanji_kata(c: char) -> bool {
     ('\u{4E00}'..='\u{9FFF}').contains(&c)      // CJK 統合漢字
@@ -122,6 +131,10 @@ impl Coinage {
     }
 
     /// 1 行を Mode C で解析し、辞書に長単位化されない内容語複合を（成分品詞つきで）返す。
+    /// 混種語対応（2026-07-09 dogfood: 「slop 軸」「機械床」class が codemix の密度床と
+    /// coinage の和字限定 run の隙間に落ちて不可視だった）: latin token も run に参加させ、
+    /// latin→和字 の境界に限り単一空白で複合を橋渡しする（「slop軸」「slop 軸」の両表記を捕捉）。
+    /// pure-latin run（英語の語列）は複合でないので捨てる — 和字を含む run だけが候補。
     fn scan_line(&self, line: &str) -> Vec<(String, Vec<Component>)> {
         let tok = StatelessTokenizer::new(&self.dict);
         let mut out = Vec::new();
@@ -130,8 +143,10 @@ impl Coinage {
             Err(_) => return out, // 解析不能行は判定対象外 (バイナリ断片等)
         };
         let mut run: Vec<Component> = Vec::new();
+        let mut bridged = false; // 直前 token が「複合を繋ぐ空白」だったか（連続空白は繋がない）
         let flush = |run: &mut Vec<Component>, out: &mut Vec<(String, Vec<Component>)>| {
-            if run.len() >= 2 {
+            let has_native = run.iter().any(|(s, _)| s.chars().any(is_kanji_kata));
+            if run.len() >= 2 && has_native {
                 let compound: String = run.iter().map(|(s, _)| s.as_str()).collect();
                 if !self.allow.contains(&compound) {
                     out.push((compound, run.clone()));
@@ -144,12 +159,22 @@ impl Coinage {
             let get = |i: usize| pos.get(i).map(|s| s.to_string()).unwrap_or_default();
             let pos3 = [get(0), get(1), get(2)];
             let surf = m.surface().to_string();
-            let content = matches!(pos3[0].as_str(), "名詞" | "接頭辞" | "接尾辞")
+            let is_native = matches!(pos3[0].as_str(), "名詞" | "接頭辞" | "接尾辞")
                 && surf.chars().any(is_kanji_kata);
+            let content = is_native || is_latin_word(&surf);
             if content {
                 run.push((surf, pos3));
+                bridged = false;
+            } else if !bridged
+                && surf.trim().is_empty()
+                && run.last().is_some_and(|(s, _)| is_latin_word(s))
+            {
+                // latin の直後の単一空白は保留 — 次が content なら複合を繋ぐ（"slop 軸"）。
+                // 和字→空白は繋がない（「評価 結果」を複合にしない）。
+                bridged = true;
             } else {
                 flush(&mut run, &mut out);
+                bridged = false;
             }
         }
         flush(&mut run, &mut out);
@@ -177,11 +202,13 @@ impl Coinage {
     }
 
     /// strict(HARD) 判定（知識は辞書所有・冒頭 comment の 2 信号）。
+    /// 接尾辞語義の救済は**非語頭に限る**（2026-07-09 dogfood: 家 は接尾辞語義（政治家）を
+    /// 持つが語頭では語形成しない — 位置を見ないと「家造語」class の頭付け造語が免除される）。
     fn is_strict_hit(&self, components: &[Component]) -> bool {
         if components.iter().any(|(_, pos)| pos[1] == "数詞") {
             return false;
         }
-        components.iter().any(|(surf, pos)| {
+        components.iter().enumerate().any(|(i, (surf, pos))| {
             let single_kanji = {
                 let mut cs = surf.chars();
                 match (cs.next(), cs.next()) {
@@ -193,7 +220,7 @@ impl Coinage {
                 && pos[0] == "名詞"
                 && pos[1] == "普通名詞"
                 && pos[2] == "一般"
-                && !self.has_suffix_reading(surf)
+                && !(i > 0 && self.has_suffix_reading(surf))
         })
     }
 }
@@ -252,23 +279,26 @@ pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
             // -U0 では context 行は無い; 削除行 (-) は新 file 行番号を進めない
         }
     } else if args.files.is_empty() {
-        // fence 内はコード例＝散文でない（strip は同数改行置換で行番号不変・prose.rs 共有）。
+        // fence 内はコード例・inline code は語の「言及」＝どちらも散文でない（fence strip は
+        // 同数改行置換で行番号不変・prose.rs 共有。inline strip は行内処理で行番号に影響なし）。
         // diff モードは対象外: 断片に fence ペアの文脈が無く、対にならない ``` を誤爆させるより
         // 追加行をそのまま見る方が安全。
+        let inline = Regex::new(r"`[^`]*`").unwrap();
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf).ok();
         let buf = crate::prose::strip_fences(&buf);
         for (i, line) in buf.lines().enumerate() {
-            scan("-", i + 1, line, &mut hits);
+            scan("-", i + 1, &inline.replace_all(line, ""), &mut hits);
         }
     } else {
+        let inline = Regex::new(r"`[^`]*`").unwrap();
         for f in &args.files {
             match fs::read_to_string(f) {
                 Err(e) => eprintln!("correo coinage: {f} 読込失敗: {e} (skip)"),
                 Ok(t) => {
                     let t = crate::prose::strip_fences(&t);
                     for (i, line) in t.lines().enumerate() {
-                        scan(f, i + 1, line, &mut hits);
+                        scan(f, i + 1, &inline.replace_all(line, ""), &mut hits);
                     }
                 }
             }
@@ -350,6 +380,66 @@ fn resolve_dict_dir(cli: Option<PathBuf>) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::sync::OnceLock;
+
+    #[test]
+    fn suffix_reading_rescues_only_non_initial_position() {
+        // 回帰 (2026-07-09 dogfood): linter の登録簿自身に書いてしまった「家造語」が strict を
+        // すり抜けた。家 の接尾辞語義（政治家）は語尾でしか語形成しない — 語頭では救済しない。
+        let e = engine();
+        let hits = e.scan_line("家造語を登録する。");
+        let hit = hits
+            .iter()
+            .find(|(c, _)| c == "家造語")
+            .expect("家造語 が候補に出ず");
+        assert!(
+            e.is_strict_hit(&hit.1),
+            "語頭の接尾辞語義が 家造語 を免除した"
+        );
+        // 測定法 は 法 が語尾＝接尾辞語義の本来の位置 — strict を通る（従来どおり）。
+        let hits = e.scan_line("測定法を使う。");
+        if let Some((_, parts)) = hits.iter().find(|(c, _)| c == "測定法") {
+            assert!(!e.is_strict_hit(parts), "測定法 が strict に落ちた");
+        }
+    }
+
+    #[test]
+    fn hybrid_latin_kanji_compound_is_flagged_with_and_without_space() {
+        // 回帰 (2026-07-09 dogfood): 「slop 軸」class の混種語が codemix 密度床と coinage の
+        // 和字限定 run の隙間に落ちて不可視だった。両表記（密着/空白）とも strict で捕まえる。
+        let e = engine();
+        for line in ["このslop軸を使う。", "この slop 軸を使う。"] {
+            let hits = e.scan_line(line);
+            let hit = hits.iter().find(|(c, _)| c == "slop軸");
+            assert!(
+                hit.is_some(),
+                "{line} で slop軸 が取れず: {:?}",
+                hits.iter().map(|(c, _)| c).collect::<Vec<_>>()
+            );
+            assert!(
+                e.is_strict_hit(&hit.unwrap().1),
+                "slop軸 が strict を通った"
+            );
+        }
+    }
+
+    #[test]
+    fn natural_hybrid_formations_pass_strict() {
+        // 製 は辞書が接尾辞と知っている・出力 は複漢字語 — 混種でも自然な形は strict を通る
+        // （Rust製/JSON出力 を誤爆させない・知識は辞書所有＝列挙しない）。
+        let e = engine();
+        for (line, comp) in [
+            ("Rust 製の道具。", "Rust製"),
+            ("JSON 出力を見る。", "JSON出力"),
+        ] {
+            let hits = e.scan_line(line);
+            if let Some((_, parts)) = hits.iter().find(|(c, _)| c == comp) {
+                assert!(
+                    !e.is_strict_hit(parts),
+                    "{comp} が strict に落ちた（自然な混種形）"
+                );
+            }
+        }
+    }
 
     #[test]
     fn collect_skips_code_fences_in_file_mode() {
