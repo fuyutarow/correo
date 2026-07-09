@@ -298,6 +298,20 @@ fn main() {
                         data: None,
                     });
                 }
+                for c in correo::calque::scan(&text) {
+                    if s.hit(c.line, "calque", "verb-calque") {
+                        continue;
+                    }
+                    findings.push(correo::report::Finding {
+                        detector: "calque",
+                        rule: "verb-calque".into(),
+                        file: f.clone(),
+                        line: c.line,
+                        severity: "advisory",
+                        message: c.msg,
+                        data: Some(serde_json::json!({ "word": c.word })),
+                    });
+                }
                 for d in correo::density::scan(&text) {
                     if s.hit(d.line, "density", d.rule) {
                         continue;

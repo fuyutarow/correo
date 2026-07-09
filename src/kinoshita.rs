@@ -65,6 +65,11 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
     // 文頭接続詞（また/さらに/そして…、）の連発 — LLM 生成文の指紋。3 文連続で advisory。
     let connector =
         Regex::new(r"^(また|さらに|そして|加えて|一方|なお|ただし|つまり|次に|まず)、").unwrap();
+    // 7 連続以上の漢字（読みにくい漢語の塊・textlint max-kanji-continuous-len 相当）。
+    // 分野の固有名（電子情報通信工学専攻）は正当なので advisory — 分割 or 固有名なら無視。
+    let kanji_run = Regex::new(r"[\p{Han}々]{7,}").unwrap();
+    // 実用文中の感嘆符（木下: 技術文書で ！ は避ける）。？ は問い掛けで正当があるので ！ のみ。
+    let exclaim = Regex::new(r"[！!]").unwrap();
 
     // 文抽出（fence/構造行/inline strip・行跨ぎ接続）は prose.rs の単一 home に委譲（2026-07-09）。
     let sents = crate::prose::sentences(text);
@@ -125,6 +130,31 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 "太字見出し＋コロンの箇条書きが {n} 連続 — LLM の定型 layout。散文か表を検討"
             ),
         });
+    }
+
+    // 述語＋コロンで block（箇条書き/コード等）へ接続 — 英語 "Do the following:" の直訳調
+    // （@textlint-ja no-ai-colon-continuation の Sudachi 不要 port・2026-07-09 harvest 採録）。
+    // 名詞受け（使用方法:）は正当なので、コロン直前が「ひらがな＝述語的」の時だけ advisory。
+    let pred_colon = Regex::new(r"[ぁ-ん][:：]\s*$").unwrap();
+    let block_start = Regex::new(r"^[ \t]*(?:[-*+][ \t]|・|[0-9０-９]+[.．)]|```|>|\|)").unwrap();
+    {
+        let lines: Vec<&str> = defenced.lines().collect();
+        for (i, raw) in lines.iter().enumerate() {
+            if !pred_colon.is_match(raw.trim_end()) {
+                continue;
+            }
+            if let Some(next) = lines[i + 1..].iter().find(|l| !l.trim().is_empty())
+                && block_start.is_match(next)
+            {
+                v.push(Violation {
+                    line: i + 1,
+                    rule: "colon-continuation",
+                    severity: Severity::Advisory,
+                    msg: "述語＋コロンで箇条書きへ接続 — 英語の直訳調。「次の通り。」で切るか名詞で受ける"
+                        .to_string(),
+                });
+            }
+        }
     }
 
     // 同じ書き出しの文の連続（3 文以上）— LLM 生成文のもう一つの指紋。文頭接続詞
@@ -246,6 +276,26 @@ pub fn scan(text: &str, max_sentence: usize, max_ten: usize) -> Vec<Violation> {
                 rule: "verbose-potential",
                 severity: Severity::Hard,
                 msg: "「することができ…」— 「できる」で言い切る（簡潔）".to_string(),
+            });
+        }
+        if let Some(m) = kanji_run.find(s) {
+            v.push(Violation {
+                line: *line,
+                rule: "kanji-run",
+                severity: Severity::Advisory,
+                msg: format!(
+                    "漢字 {} 連続「{}」— 読点や送り仮名で切る（固有名なら無視）",
+                    m.as_str().chars().count(),
+                    m.as_str()
+                ),
+            });
+        }
+        if exclaim.is_match(s) {
+            v.push(Violation {
+                line: *line,
+                rule: "exclamation",
+                severity: Severity::Advisory,
+                msg: "感嘆符 ！ — 実用文では感情でなく事実で示す（木下）".to_string(),
             });
         }
         if connector.is_match(s) {
@@ -492,6 +542,55 @@ mod tests {
             scan(ok, 100, 4)
                 .iter()
                 .all(|x| x.rule != "connector-pileup")
+        );
+    }
+
+    #[test]
+    fn flags_predicate_colon_before_block_but_allows_noun_colon() {
+        // 英語 "Do the following:" の直訳調（述語＋コロン→箇条書き）。名詞受けは正当。
+        let bad = "次の手順で設定を変更します:\n\n- 項目を開く。";
+        assert!(
+            scan(bad, 100, 4)
+                .iter()
+                .any(|x| x.rule == "colon-continuation")
+        );
+        let ok = "使用方法:\n\n- 項目を開く。";
+        assert!(
+            scan(ok, 100, 4)
+                .iter()
+                .all(|x| x.rule != "colon-continuation")
+        );
+    }
+
+    #[test]
+    fn flags_long_kanji_run_advisory_but_not_short_terms() {
+        // textlint max-kanji-continuous-len 相当。7+ を advisory で。
+        let bad = "電子情報通信工学専攻に所属する。";
+        let hits: Vec<_> = scan(bad, 100, 4)
+            .into_iter()
+            .filter(|x| x.rule == "kanji-run")
+            .collect();
+        assert_eq!(hits.len(), 1);
+        assert!(matches!(hits[0].severity, Severity::Advisory));
+        // 6 字以下の術語（形態素解析器）は誤爆しない。
+        assert!(
+            scan("形態素解析器を用いる。", 100, 4)
+                .iter()
+                .all(|x| x.rule != "kanji-run")
+        );
+    }
+
+    #[test]
+    fn flags_exclamation_advisory() {
+        assert!(
+            scan("これは本当にすごい成果だ！", 100, 4)
+                .iter()
+                .any(|x| x.rule == "exclamation")
+        );
+        assert!(
+            scan("これは良い成果だ。", 100, 4)
+                .iter()
+                .all(|x| x.rule != "exclamation")
         );
     }
 

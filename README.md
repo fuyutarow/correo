@@ -8,7 +8,7 @@
 
 - **codemix** — 地の文の latin/100字 密度（ルー語）。識別子・ALLCAPS 略語・allow-list に登録した語は除外。
 - **coinage** — Sudachi 形態素解析で辞書外の複合語（不自然な造語・`slop軸` のような混種語も含む）を候補として挙げる。corpus（実在の語彙表）を設定すると、**実在が証明できた複合（`物理層`）を候補から消して** judge へ渡すノイズを減らす。不在は error にしない — `使用例` のような生産的複合はどんな有限の語彙表にも載らないため、**不在≠造語**。造語の確定は judge が下し、その裁定は `[deny]` が永続化する（`機械床` の再侵入は HARD で落ちる）。
-- **calque**（順次）— 英語動詞を「する」に接ぐ code-switching。
+- **calque** — 英語動詞を「する/される」に直接接ぐ code-switching（`deployする`・`inspireされた`）。狭義のみを決定論で扱う — 広義の翻訳調（が行われ 等）は丁寧な人間文書にも現れるため（qoed corpus で が行われ×12 を実測・2026-07-09）、judge の領分。
 
 **木下原則の検査**（機械が言い切れる判定だけ — HARD）
 
@@ -41,6 +41,8 @@ correo check --format json | your-judge --schema three-way.json
 
 英語圏の文章 lint は [Vale](https://vale.sh)（Go 製・単一バイナリ・マークアップ対応・オフライン）が事実上の標準だが、**Vale は形態素解析を持たず日本語には機能しない**。日本語の定番は textlint（Node.js 製・JSON 設定・プラグイン構成）だった。correo はこの隙間に立つ。Vale と同じ配布の哲学 — 単一バイナリ・オフライン・マークアップ対応・設定 1 ファイル・語彙規則をコードなしで書ける — を日本語で提供する。形態素解析は Sudachi が、文脈の判定は LLM-judge への構造化出力が受け持つ。
 
+AI 特化の近縁ツールとも機構を突合した（2026-07・全ルールを採取して実測）。`@textlint-ja/preset-ai-writing` は表層 regex＋固定辞書の 5 規則で、kuromoji はコロン規則の語末品詞判定だけに使う。meiseki は textlint を包む Claude Code plugin（自前の解析コードなし）、slopless は英語専用。**形態素×辞書 membership の造語・混種語検出、圧縮率の情報密度、段落の近重複 — この 3 機構はどれも持たない**（correo 固有）。常套句辞書は preset-ai-writing と部分交差の別集合だったため、精度基準で選別した和集合を採る（人間の常用語 — 完全に・大幅に 等 — は実測 FP 報告があるため不採録）。
+
 Vale の規則類型との対応（何が在り、何が roadmap か）:
 
 | Vale extension point | correo |
@@ -60,6 +62,8 @@ Vale の規則類型との対応（何が在り、何が roadmap か）:
 - **Tier 2（MIX・proxy）** — 逆茂木の proxy（文頭の連体修飾チェーン長）→ flag のみ、judge が確認。
 - **Tier 3（VIBE・座標のみ）** — トピックセンテンス・事実と意見・スリカエ → 段落第一文等の座標を構造化出力して LLM-judge に渡す（correo は判定しない）。
 - 係り受けが要る原則（主述近接・修飾語順）は形態素の外 — proxy 化できた分だけ Tier 2 へ。
+- 従来 textlint からの移植候補（Sudachi でより正確に作れる順）: 二重助詞・同一 token の連続（これはは）・ら抜き。
+- 検出と報告の分離（slopless の density policy）: 単発は許し、窓あたり密度で severity を裁く報告エンジン。ぼかし・接続詞系の誤爆をさらに減らす。
 
 ## roadmap — coinage の証拠強化
 
