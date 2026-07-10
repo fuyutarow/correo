@@ -171,6 +171,7 @@ correo readability report.md
 （readability の HARD 違反と deny）。codemix・coinage・calque・structure・density・rhetoric
 は advisory（judge へ渡す候補）として数える。
 `--no-default-features` でビルドすると coinage を外した純 codemix になる（Sudachi 依存なし）。
+HTML 内の `<!-- correo-ignore -->` は行内抑制のためのコメントだが、tag 剥ぎで一緒に消えるため効かない（build 生成物からの検出を想定した仕様で、抑制は source 側で行う前提）。
 
 ## 設定 — correo.toml（自動発見・無くても動く）
 
