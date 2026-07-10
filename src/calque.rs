@@ -1,9 +1,10 @@
 // calque.rs — 動詞カルクの検出（英語動詞を「する/される」に直接接ぐ code-switching・2026-07-09）。
-// 設計意図は qoed 由来の【狭義】: "deployする" "inspireされた" のような latin 動詞＋する接合のみ。
-// 実測（raising-resolution 2026-07-09）: qoed 全 corpus で 2 件（inspireされた×2）— 頻度は低いが
-// 現検出器（codemix=密度床以下・coinage=する が動詞で run 断絶・readability=非対象）を完全に素通し
-// する死角であることを実証済み。広義の翻訳調（が行われ・無生物主語 等）は丁寧な人間文書と重なり
-// FP 危険（が行われ×12 を実測）なので【ここでは扱わず judge の領分】— locate/judge 分業に従う。
+// 設計意図は実務プロジェクトでの実測に基づく【狭義】: "deployする" "inspireされた" のような
+// latin 動詞＋する接合のみ。実測（raising-resolution 2026-07-09）: 実務文書 corpus で 2 件
+// （inspireされた×2）— 頻度は低いが現検出器（codemix=密度床以下・coinage=する が動詞で run
+// 断絶・readability=非対象）を完全に素通しする死角であることを実証済み。広義の翻訳調（が行われ・
+// 無生物主語 等）は丁寧な人間文書と重なり FP 危険（が行われ×12 を実測）なので【ここでは扱わず
+// judge の領分】— locate/judge 分業に従う。
 // advisory 固定: デプロイする（カタカナ）は正当な日本語で、latin 形は register の問題 — 定着度の
 // 裁定（domain/pinned/gratuitous）は codemix と同じく judge が下す。
 use regex::Regex;

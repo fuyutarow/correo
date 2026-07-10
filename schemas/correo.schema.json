@@ -15,6 +15,11 @@
       "additionalProperties": { "type": "string" },
       "description": "確定した造語の禁止辞書（語 → 書き直しの案）。HARD＝exit 1 に数える。judge 裁定の第三バケツ: 自然→無視 / 使い続ける→allow / 確定造語→ここ。"
     },
+    "deny-vocabulary": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "利用側プロジェクトの禁止語彙表 file の path（複数可・union。`--deny-vocabulary` と同じ経路）。correo 組み込みの BUILTIN（LLM 定型句）とは別由来で、プロジェクト固有の裁定語（house coinage）を組み込みに焼き込まず file で持ち込む。形式は TSV `語<TAB>書き直し案`（# 行と空行は無視）。"
+    },
     "codemix": {
       "type": "object",
       "additionalProperties": false,
@@ -66,9 +71,9 @@
     },
     "register": {
       "type": "string",
-      "enum": ["internal", "external"],
+      "enum": ["internal", "practice", "consume", "external"],
       "default": "internal",
-      "description": "読者軸。CLI flag --register が優先。external のときだけ jargon-export（内輪語の輸出検査）が発火する。internal では allow と同じ語彙表が従来どおり免除リストとして働く（役割は反転しない）。"
+      "description": "読者軸。CLI flag --register が優先。practice/consume のときだけ jargon-export（内輪語の輸出検査）が発火する。internal では allow と同じ語彙表が従来どおり免除リストとして働く（役割は反転しない）。practice はこの後その語彙を使う読者向け（定義があれば合格）、consume は結論を消費するだけの読者向け（地の文に出てこなければ合格）。external は practice の旧名（deprecated alias・後方互換）。"
     },
     "jargon": {
       "type": "object",
@@ -76,7 +81,7 @@
       "properties": {
         "vocabulary": {
           "type": "string",
-          "description": "jargon-export（register=external でのみ発火）の検査対象語彙表 path（--allow と同形式・第 1 列の見出し語だけを候補にする。相対 path は correo.toml の場所基準）。未指定なら jargon-export は候補ゼロで沈黙する。"
+          "description": "jargon-export（register=practice|consume でのみ発火）の検査対象語彙表 path（--allow と同形式・第 1 列の見出し語だけを候補にする。相対 path は correo.toml の場所基準）。未指定なら jargon-export は候補ゼロで沈黙する。"
         }
       }
     }

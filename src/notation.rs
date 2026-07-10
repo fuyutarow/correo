@@ -1,12 +1,11 @@
-// notation.rs — 台帳記法の読者面への漏出検出（2026-07-11・qoed ポートフォリオ HTML 事例）。
+// notation.rs — 台帳記法の読者面への漏出検出（2026-07-11・台帳体プロジェクトの実務事例）。
 //
 // 出自: 台帳体（研究 registry・記録の来歴ログ）は矢印・全角イコール・中点連結を圧縮記法として
-// 常用する。これは台帳の内部では正当（`docs/research_state.toml` の実測: → 38 ／ ⟹ 6 ／
-// ＝ 86・R2607_026 のような prose lint 通過済み記録でも → 4 ／ ＝ 1 は残る）。しかし台帳体の
-// 文書から読者向け散文（配布 HTML 等）へ複写されるとき、記号が文の接続・論理・列挙の仕事を
-// したまま漏れる事故が実測された ── qoed ポートフォリオ HTML 1 枚で 矢印×18・全角イコール×10・
-// 括弧内 3 連結×4（`docs/records/R2607_026` §来歴に詳しい経緯はないが、事故そのものは
-// scratchpad の HTML 抽出 corpus で確認済み）。
+// 常用する。これは台帳の内部では正当（実測: 台帳 file 1 本で矢印数十件・全角イコール数十件、
+// prose lint 通過済み記録でも矢印・全角イコールは少数残る）。しかし台帳体の文書から読者向け
+// 散文（配布 HTML 等）へ複写されるとき、記号が文の接続・論理・列挙の仕事をしたまま漏れる事故が
+// 実測された ── 台帳体の実務文書から読者向け文書へ複写された HTML 1 枚で、矢印×18・
+// 全角イコール×10・括弧内 3 連結×4 を実測した（2026-07）。
 //
 // 検出器 = 検査する性質 1 つ（lib.rs の原則）: 本 module は「台帳記法が地の文の接続・論理の
 // 役割を肩代わりしている」ことだけを見る。rhetoric.rs の「——」密度（文体の指紋・composite・
@@ -42,7 +41,7 @@ pub fn scan(text: &str) -> Vec<Finding> {
 
     let arrow = Regex::new(r"→|⇒|⟹").unwrap();
     // 全角イコール＝の直前 or 直後が日本語文字（ひらがな/カタカナ/漢字）＝連結用法。
-    // 較正実測（2026-07-11・qoed research_state.toml 86 件）: 純粋な数式的使用（変数・数値が
+    // 較正実測（2026-07-11・台帳体 registry file 86 件抽出）: 純粋な数式的使用（変数・数値が
     // 両側とも欧文/数字のみ: 「x＝1」型）はほぼ皆無で、大半は日本語節と英数字識別子を跨ぐ
     // 台帳連結（「採択条件＝workflow」「次＝purity」等）— 両側 JA 限定だと 86 件中 27 件しか
     // 拾えず（実測）、識別子跨ぎの過半を見逃す。「片側だけ JA」まで広げて連結用法を捕まえつつ、
@@ -178,7 +177,7 @@ mod tests {
 
     #[test]
     fn flags_fullwidth_equals_when_only_one_side_is_japanese() {
-        // 較正実測（qoed research_state.toml）: 大半は日本語節と英数字識別子を跨ぐ台帳連結
+        // 較正実測（台帳体 registry file）: 大半は日本語節と英数字識別子を跨ぐ台帳連結
         // （「採択条件＝workflow」「次＝purity」型）── 両側 JA 限定だと過半を見逃す。
         assert!(
             scan("採択条件＝workflow 組込みを要する。")
@@ -230,10 +229,11 @@ mod tests {
 
     #[test]
     fn calibration_corpus_counts_match_the_incident_report() {
-        // 実測較正: qoed ポートフォリオ HTML 抽出（scratchpad corpus）で 矢印×18・全角イコール×10。
-        // fixture は repo 外の一時ファイルなので、ここでは代表サンプルで境界を固定する
-        // （較正の全数は README 規則台帳と実装報告に記録・本 test は回帰の pin）。
-        let sample = "π（測定 menu）\nmenu jump\nPauli menu → 任意 POVM は certified\n2.0〜4.7×（d=4 tapered）。\n実装込みでも 1.6〜2.2× 生存。\n稼ぐ場所の中心。";
+        // 実測較正: 台帳体の実務文書から読者向け文書へ複写された HTML 抽出 corpus（2026-07）で
+        // 矢印×18・全角イコール×10 を観測した。fixture は repo 外の一時ファイルなので、
+        // ここでは代表サンプルで境界を固定する（較正の全数は README 規則台帳と実装報告に記録・
+        // 本 test は回帰の pin）。
+        let sample = "段階A（暫定 menu）\nmenu jump\n手順X → 手順Y は certified\n2.0〜4.7×（規模4 tapered）。\n実装込みでも 1.6〜2.2× 生存。\n稼ぐ場所の中心。";
         let hits = scan(sample);
         assert!(hits.iter().any(|f| f.rule == "arrow"));
     }

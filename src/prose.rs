@@ -76,7 +76,7 @@ const BLOCK_TAGS: &[&str] = &[
 /// `<[^>]*>` → "" 置換は隣接セルの語を連結し（`<td>cell</td><td>固有</td>` → 「cell固有」）、
 /// 大量の偽 coinage を生んだ実害がある — tag は空文字でなく**単一空白**に置換し、この連結を断つ。
 ///
-/// 精密化（2026-07-11・qoed dashboard HTML の table 実測で発覚）: 単一空白だけでは同一物理行に
+/// 精密化（2026-07-11・台帳体ダッシュボード HTML の table 実測で発覚）: 単一空白だけでは同一物理行に
 /// 並ぶ複数 block 要素（`<tr><td>A</td><td>B</td></tr>` の各セル）が「1 つの文」として
 /// sentences()/prose_units() に読まれ、文の資格検査（completeness）等が表データを地の文の
 /// 断片と誤認する。block 要素の**境界**（開始/終了 tag）は散文単位の境界でもあるべき ──
@@ -403,17 +403,18 @@ mod tests {
 
     #[test]
     fn strip_html_separates_same_line_table_cells_into_distinct_sentences() {
-        // qoed dashboard HTML の実測: <tr><td>A</td><td>B</td></tr> が同一物理行に並ぶ表は、
+        // 台帳体ダッシュボード HTML の実測: <tr><td>A</td><td>B</td></tr> が同一物理行に並ぶ表は、
         // 単一空白だけでは 1 文として誤読される（completeness/codemix 等が表データを地の文の
         // 断片と誤認する実害・2026-07-11）。td は block 要素なので境界に文の終端記号が入り、
         // 各セルは別の散文単位になるべき。
-        let html = "<tr><td>menu_jump_d4</td><td>Pauli menu から任意 POVM への跳躍</td><td>2.0〜4.7×</td></tr>";
+        let html =
+            "<tr><td>step_jump_4</td><td>手順A から手順B への遷移</td><td>2.0〜4.7×</td></tr>";
         let out = strip_html(html);
         let sents = sentences(&out);
         assert!(
             sents
                 .iter()
-                .all(|(_, s)| !(s.contains("menu_jump_d4") && s.contains("Pauli menu"))),
+                .all(|(_, s)| !(s.contains("step_jump_4") && s.contains("手順A から"))),
             "同一物理行の隣接セルが 1 文に結合された: {sents:?}"
         );
     }

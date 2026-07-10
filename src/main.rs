@@ -15,20 +15,27 @@ enum Format {
     Github,
 }
 
-/// 読者軸。既定は internal（現行動作＝不変）。external は jargon-export を発火させる ──
-/// 語彙表（--jargon-vocabulary・correo.toml の [jargon] vocabulary）が、internal では免除
-/// リスト、external では検査対象語彙として役割を反転する（README §規則台帳・jargon.rs 参照）。
+/// 読者軸。既定は internal（現行動作＝不変）。practice/consume は jargon-export を発火させる
+/// ── 語彙表（--jargon-vocabulary・correo.toml の [jargon] vocabulary）が、internal では免除
+/// リスト、practice/consume では検査対象語彙として役割を反転する（README §規則台帳・jargon.rs
+/// 参照）。practice/consume の分岐: この後その語彙を使う読者（実務者向け仕様書）向けなら
+/// practice（定義があれば合格）、結論を消費するだけの読者（概況・報告）向けなら consume
+/// （地の文に出てこなければ合格 — 定義や用語表があっても不出現でなければ違反）。
+/// external は practice の旧名（後方互換の deprecated alias。README に記す）。
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum RegisterArg {
     Internal,
-    External,
+    #[value(alias = "external")]
+    Practice,
+    Consume,
 }
 
 impl From<RegisterArg> for correo::pipeline::Register {
     fn from(r: RegisterArg) -> Self {
         match r {
             RegisterArg::Internal => correo::pipeline::Register::Internal,
-            RegisterArg::External => correo::pipeline::Register::External,
+            RegisterArg::Practice => correo::pipeline::Register::Practice,
+            RegisterArg::Consume => correo::pipeline::Register::Consume,
         }
     }
 }
@@ -78,16 +85,25 @@ enum Command {
         /// 機械的に安全な修正を適用して書き戻す（現在: `することができ`→`でき`）
         #[arg(long)]
         write: bool,
-        /// 読者軸（既定 internal・correo.toml の register で設定可）。external は jargon-export
-        /// を発火させる — 語彙表（--jargon-vocabulary・correo.toml で設定可）に載る語が読者向け
-        /// 散文へ定義なしで使われていないかを検査する。internal では同じ語彙表は従来どおり
-        /// 免除リストのまま。
+        /// 読者軸（既定 internal・correo.toml の register で設定可）。practice/consume は
+        /// jargon-export を発火させる — 語彙表（--jargon-vocabulary・correo.toml で設定可）の
+        /// 語を検査対象にする。practice はこの後その語彙を使う読者向け（定義があれば合格）、
+        /// consume は結論を消費するだけの読者向け（地の文に出てこなければ合格・定義や用語表が
+        /// あっても不出現でなければ違反）。internal では同じ語彙表は従来どおり免除リストのまま。
+        /// external は practice の旧名（deprecated alias・後方互換）。
         #[arg(long, value_enum)]
         register: Option<RegisterArg>,
         /// jargon-export の語彙表 file（--allow と同形式・第 1 列の見出し語を検査対象にする。
-        /// correo.toml の [jargon] vocabulary が主経路・これは補助。register=external でのみ使う）
+        /// correo.toml の [jargon] vocabulary が主経路・これは補助。register=practice/consume
+        /// でのみ使う）
         #[arg(long)]
         jargon_vocabulary: Vec<PathBuf>,
+        /// 利用側プロジェクトの禁止語彙表 file（複数可・union。correo.toml の deny-vocabulary が
+        /// 主経路・これは補助）。correo 組み込みの BUILTIN（LLM 定型句）とは別由来 — プロジェクト
+        /// 固有の裁定語（house coinage）を組み込みに焼き込まず file で持ち込む経路。形式は TSV
+        /// `語<TAB>書き直し案`（# 行と空行は無視）。
+        #[arg(long)]
+        deny_vocabulary: Vec<PathBuf>,
         /// 対象 file（省略時: cwd 以下の *.md を .gitignore 準拠で全走査）
         files: Vec<String>,
     },
@@ -204,6 +220,7 @@ fn main() {
             write,
             register,
             jargon_vocabulary,
+            deny_vocabulary,
             files,
         } => {
             // biome check に倣う porcelain: 引数ゼロで動く・設定は correo.toml 自動発見・
@@ -223,6 +240,7 @@ fn main() {
             let max_ten = max_ten.or(cfg.readability.max_ten).unwrap_or(4);
             // 読者軸: CLI flag > correo.toml の register 文字列 > 既定 internal（他の設定項目と
             // 同じ優先順位規約）。correo.toml の register は自由文字列なので大小文字を吸収する。
+            // "external" は "practice" の deprecated alias（後方互換・README に記す）。
             let register: correo::pipeline::Register =
                 register.map(Into::into).unwrap_or_else(|| {
                     match cfg
@@ -231,14 +249,15 @@ fn main() {
                         .map(str::to_ascii_lowercase)
                         .as_deref()
                     {
-                        Some("external") => correo::pipeline::Register::External,
+                        Some("external") | Some("practice") => correo::pipeline::Register::Practice,
+                        Some("consume") => correo::pipeline::Register::Consume,
                         _ => correo::pipeline::Register::Internal,
                     }
                 });
-            // jargon-export の検査対象語彙（register=external でのみ使われる。internal では
-            // 空のままで無害 — jargon_findings が register を見て早期 return する）。
+            // jargon-export の検査対象語彙（register=practice/consume でのみ使われる。internal
+            // では空のままで無害 — jargon_findings が register を見て早期 return する）。
             let mut jargon_terms: Vec<String> = Vec::new();
-            if register == correo::pipeline::Register::External {
+            if register != correo::pipeline::Register::Internal {
                 let mut vocab_paths: Vec<PathBuf> = jargon_vocabulary.clone();
                 if vocab_paths.is_empty()
                     && let Some(p) = &cfg.jargon.vocabulary
@@ -259,7 +278,7 @@ fn main() {
                 }
                 if vocab_paths.is_empty() {
                     eprintln!(
-                        "correo check: register=external だが jargon 語彙表が未設定 — jargon-export は候補ゼロで沈黙する（--jargon-vocabulary か correo.toml の [jargon] vocabulary で設定）"
+                        "correo check: register=practice/consume だが jargon 語彙表が未設定 — jargon-export は候補ゼロで沈黙する（--jargon-vocabulary か correo.toml の [jargon] vocabulary で設定）"
                     );
                 }
             }
@@ -286,13 +305,32 @@ fn main() {
                 exit(2);
             }
 
-            // deny = 組み込み slop 常套句（出荷時の意見のある既定）∪ ユーザの確定裁定。
+            // deny = 組み込み slop 常套句（出荷時の意見のある既定）∪ ユーザの確定裁定
+            // （correo.toml の [deny] インライン ∪ deny-vocabulary file 群）。
             // allow に語を書けばどちらも個別解除できる（組み込みへの拒否権はユーザが持つ）。
             let allow_set: std::collections::HashSet<&str> =
                 cfg.allow.iter().map(String::as_str).collect();
             let mut builtin_deny = correo::deny::builtin();
             builtin_deny.retain(|w, _| !allow_set.contains(w.as_str()));
             let mut user_deny = cfg.deny.clone();
+            // deny-vocabulary は project 固有の禁止語彙表 file（CLI --deny-vocabulary が補助・
+            // correo.toml の deny-vocabulary が主経路。両方指定時は union）。相対 path は
+            // correo.toml の場所基準（jargon.vocabulary と同じ解決規約）。
+            let mut vocab_paths: Vec<PathBuf> = deny_vocabulary.clone();
+            vocab_paths.extend(cfg.deny_vocabulary.iter().map(|p| {
+                if p.is_relative() {
+                    cfg_path
+                        .as_ref()
+                        .and_then(|c| c.parent())
+                        .map(|d| d.join(p))
+                        .unwrap_or_else(|| p.clone())
+                } else {
+                    p.clone()
+                }
+            }));
+            for p in &vocab_paths {
+                user_deny.extend(correo::deny::load_vocabulary(p));
+            }
             user_deny.retain(|w, _| !allow_set.contains(w.as_str()));
 
             // メタファー語彙表（data・optional）: correo.toml 指定（相対は toml の場所基準）

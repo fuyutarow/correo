@@ -21,6 +21,13 @@ pub struct Config {
     /// judge の 3-way 裁定の第三バケツ — 自然→無視 / 使い続ける→allow / 確定造語→ここ。
     #[serde(default)]
     pub deny: std::collections::HashMap<String, String>,
+    /// 利用側プロジェクトの禁止語彙表 file（複数可・union）。correo 組み込みの deny
+    /// （BUILTIN の LLM 定型句）とは別の由来 — プロジェクト固有の裁定語（house coinage）を
+    /// 組み込みに焼き込まず、利用側が自前の file で持ち込むための経路（`--deny-vocabulary` と
+    /// 同じ複数指定・union の規約。形式は deny.rs::load_vocabulary、TSV `語<TAB>書き直し案`）。
+    /// 未指定なら correo.toml の `[deny]` インライン裁定と組み込み BUILTIN だけが効く。
+    #[serde(default, rename = "deny-vocabulary")]
+    pub deny_vocabulary: Vec<PathBuf>,
     #[serde(default)]
     pub codemix: CodemixCfg,
     #[serde(default)]
@@ -39,9 +46,10 @@ pub struct Config {
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct JargonCfg {
-    /// jargon-export（register=external でのみ発火）の検査対象語彙表 file（--allow と同形式・
-    /// 第 1 列の見出し語だけを候補にする。qoed では docs/handbook/taxonomy.md）。相対 path は
-    /// correo.toml の場所基準。未指定なら jargon-export は候補ゼロで沈黙する。
+    /// jargon-export（register=practice/consume でのみ発火）の検査対象語彙表 file（--allow と
+    /// 同形式・第 1 列の見出し語だけを候補にする。例: 統制語彙表を持つプロジェクトなら
+    /// docs/handbook/taxonomy.md）。相対 path は correo.toml の場所基準。未指定なら
+    /// jargon-export は候補ゼロで沈黙する。
     pub vocabulary: Option<PathBuf>,
 }
 
@@ -121,10 +129,30 @@ max-sentence = 90
         assert_eq!(cfg.readability.max_ten, None);
         assert_eq!(cfg.register, None);
         assert!(cfg.jargon.vocabulary.is_none());
+        assert!(cfg.deny_vocabulary.is_empty());
+    }
+
+    #[test]
+    fn parses_deny_vocabulary_paths() {
+        let cfg: Config = toml::from_str(
+            r#"
+deny-vocabulary = ["lexicons/house-coinage.tsv", "lexicons/house-coinage2.tsv"]
+"#,
+        )
+        .expect("parse");
+        assert_eq!(
+            cfg.deny_vocabulary,
+            vec![
+                PathBuf::from("lexicons/house-coinage.tsv"),
+                PathBuf::from("lexicons/house-coinage2.tsv"),
+            ]
+        );
     }
 
     #[test]
     fn parses_register_and_jargon_vocabulary() {
+        // "external" は "practice" の deprecated alias（後方互換）── config.rs は自由文字列を
+        // そのまま保持するだけで、alias 解決は main.rs 側の責務（分離を保つ）。
         let cfg: Config = toml::from_str(
             r#"
 register = "external"
@@ -138,6 +166,14 @@ vocabulary = "docs/handbook/taxonomy.md"
             cfg.jargon.vocabulary,
             Some(PathBuf::from("docs/handbook/taxonomy.md"))
         );
+    }
+
+    #[test]
+    fn parses_practice_and_consume_register_strings() {
+        let cfg: Config = toml::from_str("register = \"practice\"").expect("parse");
+        assert_eq!(cfg.register.as_deref(), Some("practice"));
+        let cfg: Config = toml::from_str("register = \"consume\"").expect("parse");
+        assert_eq!(cfg.register.as_deref(), Some("consume"));
     }
 
     #[test]

@@ -19,9 +19,9 @@
 //!   直結そのものを見る）
 //! - 文の資格: `completeness`（散文単位が文の終端記号で閉じているか。readability の文内部品質
 //!   とは別性質＝終端の有無そのものを見る）
-//! - 内輪語の輸出: `jargon`（register=external でだけ発火。読者と共有されていない統制語彙が
-//!   定義なしで使われているかを見る ── register=internal では同じ語彙表が免除リストとして働く、
-//!   の逆機能）
+//! - 内輪語の輸出: `jargon`（register=practice/consume でだけ発火。読者と共有されていない統制
+//!   語彙が定義なしで使われているかを見る ── register=internal では同じ語彙表が免除リストとして
+//!   働く、の逆機能。practice=定義があれば合格・consume=地の文に出てこなければ合格）
 //! - 語彙の裁定: `deny`（組み込み slop 常套句＋judge 確定裁定の永続 cache）
 //!
 //! 判定の分業: readability の HARD と deny は機械判定が最終（blocking）。他は全て locate 層 —

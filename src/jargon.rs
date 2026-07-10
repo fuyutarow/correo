@@ -1,16 +1,17 @@
 // jargon.rs — 内輪語の輸出検査（jargon-export・2026-07-11・register 軸の第二波）。
 //
-// 出自: qoed ポートフォリオの実務事例（2026-07-11）。免除辞書（correo.toml の allow・
-// coinage の corpus）が書き手プロジェクトの統制語彙表（taxonomy）一本であるとき、
+// 出自: 統制語彙表（taxonomy）を持つ実務プロジェクトの実測事例（2026-07）。免除辞書
+// （correo.toml の allow・coinage の corpus）が書き手プロジェクトの統制語彙表一本であるとき、
 // 「書き手の語彙 = 許される語彙」が構造に焼き込まれる。internal 読者（同じ語彙を共有する
 // チーム）ではこれで正しいが、external 読者（語彙を共有しない広い読者）では役割が逆転する ──
 // **統制語彙表に載る語こそが「定義なしで輸出された内輪語」の最優先候補**になる。共有語彙とは
 // 読者と共有された語彙であって、書き手の語彙表そのものではない。
 //
-// 設計: 語彙表（例 qoed の docs/handbook/taxonomy.md）の**第 1 列**に載る語だけを候補とする。
-// codemix の domain_vocab（--allow 用）は行全体から latin token を拾う（allow-list の用途に
-// 合う広い抽出）が、jargon-export は「その語が定義された語」だけを見たいので第 1 列限定の
-// 専用抽出を持つ（home パスや gloss 文中の英単語まで語彙とみなすと過検出になる）。
+// 設計: 語彙表（例: `docs/handbook/taxonomy.md` のような統制語彙表 file）の**第 1 列**に
+// 載る語だけを候補とする。codemix の domain_vocab（--allow 用）は行全体から latin token を
+// 拾う（allow-list の用途に合う広い抽出）が、jargon-export は「その語が定義された語」だけを
+// 見たいので第 1 列限定の専用抽出を持つ（home パスや gloss 文中の英単語まで語彙とみなすと
+// 過検出になる）。
 //
 // register が external のときだけ発火する（internal の既定動作＝免除リストとしての役割は
 // pipeline.rs 側で不変。jargon-export はここでは扱わない ── 二重責務にしない）。
@@ -176,7 +177,7 @@ fn contains_japanese(s: &str) -> bool {
         .any(|c| matches!(c, '\u{3040}'..='\u{30FF}' | '\u{4E00}'..='\u{9FFF}'))
 }
 
-/// register=external のときだけ呼ぶ想定。raw は構造保持テキスト（用語表判定用）、
+/// register=practice のときだけ呼ぶ想定。raw は構造保持テキスト（用語表判定用）、
 /// clean は出現・定義徴候判定用（fence/inline code/URL 等を除いた地の文相当）。
 /// terms は語彙表（load_terms）の見出し語一覧 — 呼び出し側が事前に読み込んで渡す。
 pub fn scan(raw: &str, clean: &str, terms: &[String]) -> Vec<Finding> {
@@ -216,6 +217,85 @@ pub fn scan(raw: &str, clean: &str, terms: &[String]) -> Vec<Finding> {
             rule: "jargon-export",
             msg: format!(
                 "term 「{term}」 from the internal vocabulary registry is used without a reader-facing definition — add a Japanese gloss in parentheses at first use, or add it to a glossary table this document defines",
+            ),
+        });
+    }
+    out
+}
+
+/// 等幅（monospace）の識別子文脈として扱う HTML 要素の**中身のテキスト**（tag を剥いだ生文字列）
+/// の集合を raw から集める（第四波追加）。`<code>`/`<pre>` は prose::strip_html が既に「言及」
+/// として同数改行で消す（fence/inline code と同型の既存規約）ので対象外 ── 本関数が拾うのは
+/// それでは届かない残りのケース: `class` 属性に `mono` を含む任意要素
+/// （`<td class="mono">campaign_h2_4arm</td>` のような、用語表以外の識別子セル・バッジ・
+/// コードっぽい注記）。markdown 側は対応する記法が無い（`class` 属性は HTML 専有）ため常に空集合。
+fn monospace_context_texts(raw: &str) -> Vec<String> {
+    // regex クレートはバックリファレンス（`\1` で開始タグ名に閉じタグ名を揃える）を持たない
+    // （strip_fences/code_pre と同じ制約）ので、開始タグの後、**最初の閉じタグ**（種類は問わない）
+    // までを中身とみなす — mono セルは実測上ネストしたタグを持たない plain text（実測: td
+    // class="mono" の中身は識別子文字列のみ）ため、この単純化で十分。
+    let mono = Regex::new(
+        r#"(?is)<[a-zA-Z][a-zA-Z0-9]*\b[^>]*\bclass\s*=\s*["'][^"']*\bmono\b[^"']*["'][^>]*>(.*?)</[a-zA-Z][a-zA-Z0-9]*\s*>"#,
+    )
+    .unwrap();
+    let inner_tag = Regex::new(r"(?s)<[^>]*>").unwrap();
+    mono.captures_iter(raw)
+        .map(|c| inner_tag.replace_all(&c[1], "").trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// clean（出現判定用テキスト）から、等幅識別子文脈の中身と完全一致する語トークンを空白化する。
+/// 「行全体をマスクする」のではなく「識別子の生文字列そのもの」を置換するので、同じ行に地の文の
+/// 出現（識別子文脈の外）が同居していても、そちらは残って検査対象のままになる（実測:
+/// `<td class="mono">campaign_h2_4arm / …</td><td>… campaign を並置した</td>` の
+/// 隣接セルは識別子でなく地の文 — 同じ行でも区別が要る）。
+fn mask_monospace_occurrences(clean: &str, mono_texts: &[String]) -> String {
+    let mut out = clean.to_string();
+    for t in mono_texts {
+        if t.is_empty() {
+            continue;
+        }
+        out = out.replace(t.as_str(), &" ".repeat(t.chars().count()));
+    }
+    out
+}
+
+/// register=consume のときだけ呼ぶ想定。合否の向きが scan と逆 ── 語彙表の語が地の文
+/// （コードフェンス・インラインコード・等幅の識別子文脈を除く）に出現した時点で、それ自体が
+/// advisory 違反になる。近傍の定義徴候（(a)）や文書内の用語表（(b)）はどちらも合格条件に
+/// **ならない**（用語表を建てる解は「読者に書き手の語彙を習得させる」誤り ── 消費型読者には
+/// 不出現こそが正しい合格条件、というのが本 register の存在理由そのもの）。
+/// raw は等幅識別子文脈の抽出専用（strip_html 前の構造保持テキスト・scan と同じ契約）、
+/// clean は出現判定用（呼び出し側が prose::clean_lines で作った散文相当・scan と同じ契約）。
+pub fn scan_consume(raw: &str, clean: &str, terms: &[String]) -> Vec<Finding> {
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    let mono_texts = monospace_context_texts(raw);
+    let masked = mask_monospace_occurrences(clean, &mono_texts);
+    let mut out = Vec::new();
+    for term in terms {
+        let boundary = Regex::new(&format!(
+            r"(?:^|[^A-Za-z0-9_]){}(?:$|[^A-Za-z0-9_])",
+            regex::escape(term)
+        ))
+        .unwrap();
+        let mut first_hit: Option<usize> = None;
+        for (i, line) in masked.lines().enumerate() {
+            if boundary.is_match(line) {
+                first_hit = Some(i + 1);
+                break;
+            }
+        }
+        let Some(line_no) = first_hit else {
+            continue; // 出現なし（等幅識別子文脈のみの出現を含む）— 合格
+        };
+        out.push(Finding {
+            line: line_no,
+            rule: "jargon-export",
+            msg: format!(
+                "term 「{term}」 is not in the reader's vocabulary — don't define it, say it in the reader's words instead (e.g. campaign → 測定の実施計画)",
             ),
         });
     }
@@ -336,7 +416,7 @@ mod tests {
 
     #[test]
     fn load_terms_does_not_leak_embedded_standard_terms_from_explanatory_head() {
-        // 回帰（2026-07-11・qoed taxonomy.md 実測で発覚）: 「セル全体」抽出だと
+        // 回帰（2026-07-11・統制語彙表 taxonomy.md 実測で発覚）: 「セル全体」抽出だと
         // `thm:main (yield ⇔ tr(W_spec M⁻¹) L-optimal equivalence)` のような説明的な第 1 列から
         // yield・equivalence 等が拾われ、`任意 POVM (arbitrary POVM, menu-unrestricted)` からは
         // POVM のような広く定着した標準語（README が明示的に語彙表から除外する語）まで漏れた。
@@ -355,5 +435,132 @@ mod tests {
         assert!(!terms.iter().any(|t| t == "yield" || t == "equivalence"));
         assert!(!terms.iter().any(|t| t == "POVM" || t == "menu"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- scan_consume（第四波・register=consume） ----
+
+    #[test]
+    fn consume_flags_bare_occurrence_with_no_definition() {
+        let text = "campaign を設計する。";
+        let hits = scan_consume(text, text, &terms());
+        assert!(
+            hits.iter().any(|f| f.msg.contains("campaign")),
+            "定義の無い出現は consume でも違反のはず"
+        );
+    }
+
+    #[test]
+    fn consume_still_flags_occurrence_even_with_parenthetical_gloss() {
+        // consume の中心契約: practice なら合格する近傍定義があっても、consume では
+        // 出現そのものが違反 ── 「定義するのでなく言い換えよ」という処方の対象。
+        let text = "campaign（測定の実施計画）を設計する。";
+        let hits = scan_consume(text, text, &terms());
+        assert!(
+            hits.iter().any(|f| f.msg.contains("campaign")),
+            "consume では近傍定義があっても違反のはず"
+        );
+    }
+
+    #[test]
+    fn consume_still_flags_occurrence_even_with_glossary_table() {
+        // 用語表は practice の合格条件であって consume のそれではない（用語表は解でなく症状）。
+        // 呼び出し契約どおり clean は prose::clean_lines 後（table 行は空行化される）を渡す。
+        let text =
+            "| 語 | 定義 |\n|---|---|\n| campaign | 測定の実施計画 |\n\n本文で campaign を使う。";
+        let clean = crate::prose::clean_lines(text);
+        let hits = scan_consume(text, &clean, &terms());
+        assert!(
+            hits.iter().any(|f| f.msg.contains("campaign")),
+            "consume では用語表があっても地の文出現は違反のはず"
+        );
+    }
+
+    #[test]
+    fn consume_passes_when_term_never_appears() {
+        let text = "この文書には対象語が一つも無い。";
+        assert!(scan_consume(text, text, &terms()).is_empty());
+    }
+
+    #[test]
+    fn consume_message_prescribes_rewording_not_defining() {
+        let text = "campaign を設計する。";
+        let hits = scan_consume(text, text, &terms());
+        let h = hits.first().expect("finding が無い");
+        assert!(
+            h.msg.contains("reader's words") || h.msg.contains("reader's vocabulary"),
+            "処方が読者の言葉での言い換えを指示していない: {}",
+            h.msg
+        );
+    }
+
+    #[test]
+    fn consume_ignores_occurrence_inside_monospace_identifier_context() {
+        // <td class="mono">campaign_h2_4arm</td> のような等幅の識別子文脈は言及であり地の文
+        // ではない ── 語境界一致でも violation にしない。呼び出し契約どおり
+        // raw=HTML 生ソース・clean=strip_html 後を渡す。
+        let html = r#"<table><tr><td class="mono">campaign_id</td><td>説明</td></tr></table>"#;
+        let clean = crate::prose::strip_html(html);
+        let hits = scan_consume(html, &clean, &["campaign_id".to_string()]);
+        assert!(
+            hits.is_empty(),
+            "等幅識別子文脈のみの出現が violation になった: {:?}",
+            hits.iter().map(|f| &f.msg).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn consume_still_flags_same_term_when_it_also_appears_in_prose_outside_mono_cell() {
+        // 実測パターン: 同じ行に mono セル（識別子）と地の文の両方が
+        // 出現する場合、地の文側は依然として violation になる（行単位でなくトークン単位の除外）。
+        let html = r#"<tr><td class="mono">campaign_h2_4arm</td><td>campaign を並置した</td></tr>"#;
+        let clean = crate::prose::strip_html(html);
+        let hits = scan_consume(html, &clean, &["campaign".to_string()]);
+        assert!(
+            hits.iter().any(|f| f.msg.contains("campaign")),
+            "mono セル外の地の文出現が見逃された"
+        );
+    }
+
+    #[test]
+    fn consume_ignores_occurrence_inside_code_and_pre_like_other_detectors() {
+        // <code>/<pre> は prose::strip_html が既に「言及」として消す既存規約 ── consume も
+        // それに乗る（二重実装しない）。呼び出し契約どおり raw=HTML 生ソース・clean=strip_html
+        // 後を渡す（pipeline.rs の jargon_findings と同じ経路）。
+        let html = "<p>campaign を設計する。</p>\n<pre>campaign campaign campaign</pre>\n<p>ここには無い。</p>";
+        let clean = crate::prose::strip_html(html);
+        let hits = scan_consume(html, &clean, &["campaign".to_string()]);
+        // 地の文の <p> 側（1 行目）の出現は依然として violation。<pre> 側（2 行目）からは
+        // 拾わない ── strip_html が中身を同数改行で消すため出現自体が無い。
+        assert_eq!(
+            hits.iter()
+                .find(|f| f.msg.contains("campaign"))
+                .map(|f| f.line),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn consume_ignores_occurrence_inside_markdown_inline_code() {
+        // inline code の除去は prose::clean_lines が既に担当（呼び出し契約どおり clean は
+        // clean_lines 後を渡す）── ここでは inline code だけの行（1 行目）に定義が
+        // 無くても violation にならず、地の文の出現（2 行目）だけを拾うことを確認する。
+        let text = "`campaign` は識別子の言及。\n地の文では campaign を設計する。";
+        let clean = crate::prose::clean_lines(text);
+        let hits = scan_consume(text, &clean, &["campaign".to_string()]);
+        assert_eq!(
+            hits.iter()
+                .find(|f| f.msg.contains("campaign"))
+                .map(|f| f.line),
+            Some(2),
+            "inline code 外（2 行目）の地の文出現から拾うはず: {:?}",
+            hits.iter().map(|f| (f.line, &f.msg)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn consume_markdown_without_html_never_matches_monospace_regex() {
+        // markdown 側には class 属性という記法が無いので monospace_context_texts は常に空集合
+        // （無害に何もマッチしない）ことを回帰する。
+        assert!(monospace_context_texts("# 見出し\n\ncampaign を設計する。").is_empty());
     }
 }

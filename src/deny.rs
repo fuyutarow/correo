@@ -2,8 +2,14 @@
 // judge の 3-way 裁定の第三バケツ: 自然→無視 / 使い続ける→allow / 確定造語→deny。
 // deny は HARD（exit 1）— 一度「書き直す」と裁定した語の再侵入を機械が阻止する ratchet。
 // fence 内・inline code 内は言及なので対象外（allow/coinage と同じ規約）。
-// 組み込み辞書は 2 種の由来を持つ（BUILTIN=LLM 定型 slop 句、BUILTIN_COINAGE=個別裁定済みの
-// 混種複合）— builtin() で統合して返し、呼び出し側（deny_findings）は区別しない。
+//
+// 組み込みで持つのは BUILTIN（LLM 定型 slop 句）だけである。個別プロジェクトが自前で
+// 「書き直す」と裁定した語（house-specific coinage）は correo 本体に焼き込まない ──
+// 特定プロジェクトの裁定語を組み込みにすると、その語彙裁定が全リポジトリへ強制される
+// （correo はドメイン非依存が設計原則・README「位置づけ」参照）。代わりに利用側が
+// `correo.toml` の `[deny] vocabulary = "<path>"`（または `--deny-vocabulary <path>`）で
+// 自前の禁止語彙表を渡す機構を持つ（load_vocabulary。rhetoric.rs の metaphor_lexicon と
+// 同じ TSV data 契約 — 語彙は機構でなく data であり、binary に hardcode しない）。
 use std::collections::HashMap;
 
 /// 組み込みの slop 常套句（LLM の日本語が高頻度で混入させる定型 — 「実在するが使わない」の
@@ -46,33 +52,31 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ),
 ];
 
-/// 裁定済みの混種複合（英語幹＋漢字接辞）の再侵入防止（2026-07-11・qoed 句レベル指摘）。
-/// BUILTIN（LLM の定型 slop 句）とは判定の性質が別 — こちらは「造語として書き直す」と
-/// 個別に裁定済みの語の ratchet であり、hype/marketing calque ではない。同じ deny の
-/// HARD ratchet 機構（一度書き直すと決めた語の再侵入を機械が阻止する）を共有するため
-/// builtin() で BUILTIN と統合するが、由来を区別するため配列は分ける。
-pub const BUILTIN_COINAGE: &[(&str, &str)] = &[
-    ("closed表", "決着済みの表 へ書き直す"),
-    ("open表", "未決の表 へ書き直す"),
-    ("copies数", "部数 へ書き直す"),
-    ("software層", "ソフトウェア層 へ書き直す"),
-    ("判定家族", "改名済みの旧称 — 現行名へ書き直す"),
-];
-
-/// w が BUILTIN_COINAGE 由来か（pipeline.rs が finding のメッセージ文言を由来ごとに
-/// 出し分けるための判定 — 「LLM stock phrase」という文言は BUILTIN の hype/marketing calque
-/// にしか当てはまらず、混種複合の裁定には別の文言が要る）。
-pub fn is_coinage_term(w: &str) -> bool {
-    BUILTIN_COINAGE.iter().any(|(term, _)| *term == w)
-}
-
-/// BUILTIN ∪ BUILTIN_COINAGE を HashMap で返す（cfg.deny と併合し、allow で個別解除するのは
-/// 呼び出し側）。
+/// BUILTIN を HashMap で返す（cfg.deny と併合し、allow で個別解除するのは呼び出し側）。
 pub fn builtin() -> HashMap<String, String> {
     BUILTIN
         .iter()
-        .chain(BUILTIN_COINAGE.iter())
         .map(|(w, s)| (w.to_string(), s.to_string()))
+        .collect()
+}
+
+/// 利用側プロジェクトの禁止語彙表（`correo.toml` の `[deny] vocabulary` か
+/// `--deny-vocabulary`）を読む。形式は rhetoric.rs の metaphor_lexicon と同じ TSV
+/// data 契約: `語<TAB>書き直し案`（`#` 行と空行は無視・タブが無い行は書き直し案を
+/// 空文字にして黙って受け付ける）。file が無い／読めなければ空 map（vocabulary 自体が
+/// optional なので既定は無音）。deny の HARD ratchet 機構は変わらない — ここは語彙の
+/// 出所を組み込みから利用側 file へ切り出すだけである。
+pub fn load_vocabulary(path: &std::path::Path) -> HashMap<String, String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| match l.split_once('\t') {
+            Some((word, rewrite)) => (word.trim().to_string(), rewrite.trim().to_string()),
+            None => (l.to_string(), String::new()),
+        })
         .collect()
 }
 
@@ -129,25 +133,85 @@ mod tests {
         assert!(scan("本機能は二つの系を接続する。", &b).is_empty());
     }
 
-    #[test]
-    fn builtin_coinage_terms_hit_with_rewrite_suggestion() {
-        // qoed で「書き直す」と裁定済みの混種複合が builtin() に載り、deny の HARD ratchet で
-        // 再侵入が阻止されること（2026-07-11・qoed 句レベル指摘）。
-        let b = builtin();
-        for (w, _) in BUILTIN_COINAGE {
-            let text = format!("この{w}を確認する。");
-            let hits = scan(&text, &b);
-            assert_eq!(hits.len(), 1, "「{w}」が deny で拾われなかった");
-            assert_eq!(hits[0].1, *w);
-        }
+    fn write_temp_vocab(name: &str, content: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("correo-deny-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, content).unwrap();
+        path
     }
 
     #[test]
-    fn builtin_coinage_mentions_in_code_are_not_hits() {
-        let text = "`closed表` は言及。\n\n```\nopen表のコード例\n```";
-        assert!(
-            scan(text, &builtin()).is_empty(),
-            "混種複合の言及が deny に落ちた"
+    fn load_vocabulary_parses_tab_separated_word_and_rewrite() {
+        // 台帳体の実務文書から読者向け文書へ複写された際に確定した禁止語の再現例
+        // （語 TAB 書き直し案の 2 語）。
+        let path = write_temp_vocab(
+            "vocab1.tsv",
+            "closed表\t決着済みの表 へ書き直す\nopen表\t未決の表 へ書き直す\n",
         );
+        let v = load_vocabulary(&path);
+        assert_eq!(v.len(), 2);
+        assert_eq!(
+            v.get("closed表").map(String::as_str),
+            Some("決着済みの表 へ書き直す")
+        );
+        assert_eq!(
+            v.get("open表").map(String::as_str),
+            Some("未決の表 へ書き直す")
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_vocabulary_skips_comment_and_blank_lines() {
+        let path = write_temp_vocab(
+            "vocab2.tsv",
+            "# comment line\n\ncopies数\t部数 へ書き直す\n  \n",
+        );
+        let v = load_vocabulary(&path);
+        assert_eq!(v.len(), 1);
+        assert!(v.contains_key("copies数"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_vocabulary_accepts_tabless_line_with_empty_rewrite() {
+        let path = write_temp_vocab("vocab3.tsv", "software層\n");
+        let v = load_vocabulary(&path);
+        assert_eq!(v.get("software層").map(String::as_str), Some(""));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_vocabulary_missing_file_returns_empty_map_not_error() {
+        let v = load_vocabulary(std::path::Path::new("/nonexistent/correo-deny-vocab.tsv"));
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn loaded_vocabulary_terms_hit_through_scan_like_builtin_terms() {
+        // load_vocabulary が返す map は builtin() と同じ HashMap<String,String> 形なので
+        // scan にそのまま渡せる（deny の HARD ratchet 機構は語彙の出所を問わない）。
+        let path = write_temp_vocab(
+            "vocab4.tsv",
+            "判定家族\t改名済みの旧称 — 現行名へ書き直す\n",
+        );
+        let v = load_vocabulary(&path);
+        let hits = scan("この判定家族を確認する。", &v);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].1, "判定家族");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn loaded_vocabulary_mentions_in_code_are_not_hits() {
+        let path = write_temp_vocab("vocab5.tsv", "closed表\t書き直す\n");
+        let v = load_vocabulary(&path);
+        let text = "`closed表` は言及。\n\n```\nclosed表のコード例\n```";
+        assert!(
+            scan(text, &v).is_empty(),
+            "語彙表由来の言及が deny に落ちた"
+        );
+        std::fs::remove_file(&path).ok();
     }
 }

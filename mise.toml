@@ -1,4 +1,4 @@
-# correo — mise task runner（qoed 準拠）。
+# correo — mise task runner。
 # [tools] は宣言しない: Rust toolchain は既存の cargo/rustup をそのまま使う（mise 管理外）。
 # 命名規則: 区切りは ":" のみ。形は <domain>:<action>。do/verify は X + X:check。check = 全 gate 集約。
 

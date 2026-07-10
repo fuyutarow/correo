@@ -11,16 +11,31 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 
-/// 読者軸（register）。既定は Internal（現行動作＝不変）。External のときだけ jargon-export が
-/// 発火する ── 同じ語彙表（taxonomy.md 等）が、Internal では免除リスト（書き手の語彙 = 許される
-/// 語彙）、External では検査対象語彙（読者と共有されていない内輪語の候補）として役割を反転する。
-/// 出自: 2026-07-11 qoed ポートフォリオ事例（campaign・criterion 族・menu が broad readership へ
-/// 定義なしで輸出された）。
+/// 読者軸（register）。既定は Internal（現行動作＝不変）。Practice/Consume のときだけ
+/// jargon-export が発火する ── 同じ語彙表（taxonomy.md 等）が、Internal では免除リスト
+/// （書き手の語彙 = 許される語彙）、Practice/Consume では検査対象語彙（読者と共有されていない
+/// 内輪語の候補）として役割を反転する。
+/// 出自: 台帳体の統制語彙表を持つ実務プロジェクトの実測事例（2026-07・campaign・criterion 族・
+/// menu 級の内輪語が broad readership へ定義なしで輸出された）。
+///
+/// Practice と Consume の分岐（第四波・同日追記）: 「この語彙をこの後使う読者」（Practice —
+/// 実務者向け仕様書。語を習得して使いこなす前提）と「結論を消費する読者」（Consume — 概況・
+/// 報告の読み手。語を習得する必要が無く、させてもいけない）は合格条件が逆になる。Practice は
+/// 「定義があれば合格」（初出定義または用語表）。Consume は「地の文に出てこなければ合格」 ──
+/// 定義や用語表があっても、語彙表の語が散文単位に出現した時点でそれ自体が advisory 違反になる。
+/// 用語表を建てる解は「読者に書き手の語彙を習得させる」誤りであり、消費型読者には不出現こそが
+/// 正しい合格条件（用語表は解でなく症状）というのが本 register の判定基準である。
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Register {
     #[default]
     Internal,
-    External,
+    /// 旧 External の改名（後方互換で `external` は本値の別名として CLI/toml から受理する）。
+    /// 語彙表の語は初出定義（近傍言い換え・とは文）または文書内の用語表があれば合格。
+    Practice,
+    /// 新設（2026-07-11・第四波）。語彙表の語が地の文（コードフェンス・インライン
+    /// コード・等幅の識別子文脈を除く）に出現したら、それ自体が advisory 違反。
+    /// 定義や用語表があっても合格にしない。
+    Consume,
 }
 
 /// 検出器が要する文脈（config 由来）。文書に依らないので 1 度組んで各文書へ貸す。
@@ -185,16 +200,18 @@ fn counter_findings(text: &str) -> Vec<Finding> {
         .collect()
 }
 
-/// jargon-export は register=External のときだけ発火する（Internal では同じ語彙表が免除リスト
-/// として働く既存動作のまま・不変）。raw は用語表（markdown table / HTML table・dl）の列構造を
-/// 判定するための構造保持テキスト（呼び出し側が strip_html 前のソースを渡す）。
+/// jargon-export は register=Practice/Consume のときだけ発火する（Internal では同じ語彙表が
+/// 免除リストとして働く既存動作のまま・不変）。raw は用語表（markdown table / HTML table・dl）の
+/// 列構造を判定するための構造保持テキスト（呼び出し側が strip_html 前のソースを渡す）。
+/// Practice/Consume で判定基準を切り替える（jargon::scan/scan_consume・詳細は jargon.rs 冒頭）。
 fn jargon_findings(raw: &str, text: &str, ctx: &Ctx) -> Vec<Finding> {
-    if ctx.register != Register::External {
-        return Vec::new();
-    }
     let clean = crate::prose::clean_lines(text);
-    jargon::scan(raw, &clean, ctx.jargon_terms)
-        .into_iter()
+    let hits = match ctx.register {
+        Register::Internal => return Vec::new(),
+        Register::Practice => jargon::scan(raw, &clean, ctx.jargon_terms),
+        Register::Consume => jargon::scan_consume(raw, &clean, ctx.jargon_terms),
+    };
+    hits.into_iter()
         .map(|j| Finding {
             detector: "jargon",
             rule: j.rule.into(),
@@ -225,15 +242,9 @@ pub fn scan_document(
             format!("「{w}」 is a denied term (judge's recorded verdict) — {sugg}")
         }),
         deny_findings(text, ctx.builtin_deny, "slop-phrase", |w, sugg| {
-            if deny::is_coinage_term(w) {
-                format!(
-                    "「{w}」 is a hybrid coinage (English stem + kanji affix) the house has ruled to rewrite (builtin deny) — {sugg} (unblock: add to allow with a reason)"
-                )
-            } else {
-                format!(
-                    "「{w}…」 is an LLM stock phrase (builtin deny) — {sugg} (unblock: add to allow with a reason)"
-                )
-            }
+            format!(
+                "「{w}…」 is an LLM stock phrase (builtin deny) — {sugg} (unblock: add to allow with a reason)"
+            )
         }),
         codemix_findings(text, ctx.exempt, ctx.threshold),
         from_violations(
@@ -322,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn jargon_export_fires_under_external_register_and_is_suppressible() {
+    fn jargon_export_fires_under_practice_register_and_is_suppressible() {
         let exempt = HashSet::new();
         let allow_set = HashSet::new();
         let metaphor_lex = vec![];
@@ -335,7 +346,7 @@ mod tests {
             &metaphor_lex,
             &user_deny,
             &builtin_deny,
-            Register::External,
+            Register::Practice,
             &terms,
         );
         let text = "campaign を設計する。";
@@ -345,7 +356,7 @@ mod tests {
             findings
                 .iter()
                 .any(|f| f.detector == "jargon" && f.rule == "jargon-export"),
-            "external で jargon-export が発火しなかった"
+            "practice で jargon-export が発火しなかった"
         );
 
         // inline 抑制（<!-- correo-ignore jargon -->）が他検出器と同じ経路で効くこと。
@@ -355,6 +366,36 @@ mod tests {
         assert!(
             findings2.iter().all(|f| f.detector != "jargon"),
             "jargon の inline 抑制が効かなかった"
+        );
+    }
+
+    #[test]
+    fn jargon_export_fires_under_consume_register_even_with_glossary_definition() {
+        // consume の中心契約: practice なら合格する（用語表・近傍定義がある）語でも、
+        // consume では地の文出現そのものが違反になる。
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms = vec!["campaign".to_string()];
+        let ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::Consume,
+            &terms,
+        );
+        let text = "campaign（測定の実施計画）を設計する。";
+        let s = suppress::scan(text);
+        let findings = scan_document("doc.md", text, text, &s, &ctx);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.detector == "jargon" && f.rule == "jargon-export"),
+            "consume では近傍定義があっても発火するはず"
         );
     }
 
@@ -372,7 +413,7 @@ mod tests {
             &metaphor_lex,
             &user_deny,
             &builtin_deny,
-            Register::External,
+            Register::Practice,
             &terms,
         );
         let text = "campaign を設計する。";
