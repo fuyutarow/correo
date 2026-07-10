@@ -159,6 +159,7 @@ correo check --write
 correo check draft.md
 correo check --format json | your-judge
 correo check --format github   # ::error / ::notice を emit — PR の該当行に注釈が付く
+correo check build/report.html   # HTML も可（tag を剥いで全検出器・行番号は source 行）
 
 # 低レベルの単体検出器（diff-ratchet 等の組み込み用）
 echo '本文に framework や pipeline を混ぜた段落。' | correo codemix --threshold 8

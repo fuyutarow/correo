@@ -40,6 +40,7 @@ enum Command {
         files: Vec<String>,
     },
     /// 全検出器を一括実行（引数ゼロで cwd 以下の *.md を走査・correo.toml 自動発見・inline 抑制対応）。
+    /// .html/.htm は明示引数でのみ検査対象になる — tag を剥いで全検出器に通す（行番号は source の行と一致）。
     Check {
         /// codemix の密度閾値（latin / 100 JA字。既定 8・correo.toml で設定可）
         #[arg(long)]
@@ -260,15 +261,34 @@ fn main() {
                     }
                     Ok(t) => t,
                 };
+                // .html/.htm は tag を剥いで散文だけにしてから全検出器へ通す（broad readership
+                // 向け成果物は HTML artifact だが check に通す経路が無く、利用者が自前の雑な
+                // regex で 2 検出器だけ回して tag 境界の連結（cell固有 等）を大量に誤爆させた
+                // 実害の是正・2026-07-11）。strip_html は行数を保存するので finding の行番号は
+                // そのまま source の行を指す。
+                let is_html = std::path::Path::new(f).extension().is_some_and(|x| {
+                    x.eq_ignore_ascii_case("html") || x.eq_ignore_ascii_case("htm")
+                });
+                if is_html {
+                    text = correo::prose::strip_html(&text);
+                }
                 if write {
-                    // 修正 → 書き戻し → 修正後 text を検査（直した違反は報告に残らない）
-                    let (out, n) = correo::readability::fix(&text);
-                    if n > 0 {
-                        if let Err(e) = std::fs::write(f, &out) {
-                            eprintln!("correo check: {f} write failed: {e}");
-                        } else {
-                            fixed += n;
-                            text = out;
+                    if is_html {
+                        // --write は fix を source へ書き戻す機能で、HTML は tag を剥いだ
+                        // テキストしか手元にない（元 source を書き戻すと壊す）— 安全側で skip。
+                        eprintln!(
+                            "correo check: {f} is HTML — --write skipped (fix would corrupt the source)"
+                        );
+                    } else {
+                        // 修正 → 書き戻し → 修正後 text を検査（直した違反は報告に残らない）
+                        let (out, n) = correo::readability::fix(&text);
+                        if n > 0 {
+                            if let Err(e) = std::fs::write(f, &out) {
+                                eprintln!("correo check: {f} write failed: {e}");
+                            } else {
+                                fixed += n;
+                                text = out;
+                            }
                         }
                     }
                 }
