@@ -5,8 +5,23 @@
 // ここへ寄せた。CLI（main.rs）は arg 解釈と出力描画に責務を絞る。
 // coinage は横断 batch＋corpus 昇格＋feature-gate ゆえ本 loop に載せず main.rs が持つ（無理に畳まない）。
 use crate::report::{Finding, Severity, Violation};
-use crate::{calque, codemix, density, deny, readability, rhetoric, structure, suppress};
+use crate::{
+    calque, codemix, completeness, counter, density, deny, jargon, notation, readability, rhetoric,
+    structure, suppress,
+};
 use std::collections::{HashMap, HashSet};
+
+/// 読者軸（register）。既定は Internal（現行動作＝不変）。External のときだけ jargon-export が
+/// 発火する ── 同じ語彙表（taxonomy.md 等）が、Internal では免除リスト（書き手の語彙 = 許される
+/// 語彙）、External では検査対象語彙（読者と共有されていない内輪語の候補）として役割を反転する。
+/// 出自: 2026-07-11 qoed ポートフォリオ事例（campaign・criterion 族・menu が broad readership へ
+/// 定義なしで輸出された）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Register {
+    #[default]
+    Internal,
+    External,
+}
 
 /// 検出器が要する文脈（config 由来）。文書に依らないので 1 度組んで各文書へ貸す。
 pub struct Ctx<'a> {
@@ -18,6 +33,10 @@ pub struct Ctx<'a> {
     pub metaphor_lex: &'a [(String, String)],
     pub user_deny: &'a HashMap<String, String>,
     pub builtin_deny: &'a HashMap<String, String>,
+    pub register: Register,
+    /// jargon-export の検査対象語彙（register=External のときだけ使う。jargon::load_terms が
+    /// 語彙表から第 1 列語を抽出したもの）。Internal では無視される。
+    pub jargon_terms: &'a [String],
 }
 
 fn sev(s: Severity) -> &'static str {
@@ -121,12 +140,83 @@ fn density_findings(text: &str) -> Vec<Finding> {
         .collect()
 }
 
+fn notation_findings(text: &str) -> Vec<Finding> {
+    notation::scan(text)
+        .into_iter()
+        .map(|n| Finding {
+            detector: "notation",
+            rule: n.rule.into(),
+            file: String::new(),
+            line: n.line,
+            severity: "advisory",
+            message: n.msg,
+            data: None,
+        })
+        .collect()
+}
+
+fn completeness_findings(text: &str) -> Vec<Finding> {
+    completeness::scan(text)
+        .into_iter()
+        .map(|c| Finding {
+            detector: "completeness",
+            rule: c.rule.into(),
+            file: String::new(),
+            line: c.line,
+            severity: "advisory",
+            message: c.msg,
+            data: None,
+        })
+        .collect()
+}
+
+fn counter_findings(text: &str) -> Vec<Finding> {
+    counter::scan(text)
+        .into_iter()
+        .map(|c| Finding {
+            detector: "counter",
+            rule: c.rule.into(),
+            file: String::new(),
+            line: c.line,
+            severity: "advisory",
+            message: c.msg,
+            data: None,
+        })
+        .collect()
+}
+
+/// jargon-export は register=External のときだけ発火する（Internal では同じ語彙表が免除リスト
+/// として働く既存動作のまま・不変）。raw は用語表（markdown table / HTML table・dl）の列構造を
+/// 判定するための構造保持テキスト（呼び出し側が strip_html 前のソースを渡す）。
+fn jargon_findings(raw: &str, text: &str, ctx: &Ctx) -> Vec<Finding> {
+    if ctx.register != Register::External {
+        return Vec::new();
+    }
+    let clean = crate::prose::clean_lines(text);
+    jargon::scan(raw, &clean, ctx.jargon_terms)
+        .into_iter()
+        .map(|j| Finding {
+            detector: "jargon",
+            rule: j.rule.into(),
+            file: String::new(),
+            line: j.line,
+            severity: "advisory",
+            message: j.msg,
+            data: None,
+        })
+        .collect()
+}
+
 /// 1 文書へ全 per-file 検出器を registry 順に走らせ、suppress を適用し file を刻んで Finding を返す。
 /// 検出器の追加はこの配列に 1 行足すだけ（main の CLI アームは編集しない）。順序＝出力順（push 順・
 /// report は sort しない）なので registry の並びを変えると出力が変わる — golden で固定。
+/// raw は jargon-export の用語表判定専用（text と同一内容で構わない ── strip_html を通していない
+/// markdown 呼び出し側では text と raw は同じ文字列を渡せばよい。HTML 呼び出し側は strip_html 前の
+/// ソースを raw に、strip_html 後を text に渡す）。
 pub fn scan_document(
     file: &str,
     text: &str,
+    raw: &str,
     s: &suppress::Suppressions,
     ctx: &Ctx,
 ) -> Vec<Finding> {
@@ -135,9 +225,15 @@ pub fn scan_document(
             format!("「{w}」 is a denied term (judge's recorded verdict) — {sugg}")
         }),
         deny_findings(text, ctx.builtin_deny, "slop-phrase", |w, sugg| {
-            format!(
-                "「{w}…」 is an LLM stock phrase (builtin deny) — {sugg} (unblock: add to allow with a reason)"
-            )
+            if deny::is_coinage_term(w) {
+                format!(
+                    "「{w}」 is a hybrid coinage (English stem + kanji affix) the house has ruled to rewrite (builtin deny) — {sugg} (unblock: add to allow with a reason)"
+                )
+            } else {
+                format!(
+                    "「{w}…」 is an LLM stock phrase (builtin deny) — {sugg} (unblock: add to allow with a reason)"
+                )
+            }
         }),
         codemix_findings(text, ctx.exempt, ctx.threshold),
         from_violations(
@@ -151,6 +247,10 @@ pub fn scan_document(
         from_violations(structure::scan(text), "structure"),
         calque_findings(text),
         density_findings(text),
+        notation_findings(text),
+        completeness_findings(text),
+        counter_findings(text),
+        jargon_findings(raw, text, ctx),
     ];
     let mut out = Vec::new();
     for raws in groups {
@@ -163,4 +263,125 @@ pub fn scan_document(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_ctx<'a>(
+        exempt: &'a HashSet<String>,
+        allow_set: &'a HashSet<&'a str>,
+        metaphor_lex: &'a [(String, String)],
+        user_deny: &'a HashMap<String, String>,
+        builtin_deny: &'a HashMap<String, String>,
+        register: Register,
+        jargon_terms: &'a [String],
+    ) -> Ctx<'a> {
+        Ctx {
+            max_sentence: 100,
+            max_ten: 4,
+            threshold: 8.0,
+            exempt,
+            allow_set,
+            metaphor_lex,
+            user_deny,
+            builtin_deny,
+            register,
+            jargon_terms,
+        }
+    }
+
+    #[test]
+    fn jargon_export_is_silent_under_internal_register_even_with_terms_configured() {
+        // internal（既定）は jargon-export を発火させない ── 同じ語彙表が免除リストとして
+        // 働く既存動作は不変であるべき（register 軸導入の中心契約）。
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms = vec!["campaign".to_string()];
+        let ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::Internal,
+            &terms,
+        );
+        let text = "campaign を設計する。";
+        let s = suppress::scan(text);
+        let findings = scan_document("doc.md", text, text, &s, &ctx);
+        assert!(
+            findings.iter().all(|f| f.detector != "jargon"),
+            "internal で jargon-export が発火した: {:?}",
+            findings.iter().map(|f| &f.rule).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn jargon_export_fires_under_external_register_and_is_suppressible() {
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms = vec!["campaign".to_string()];
+        let ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::External,
+            &terms,
+        );
+        let text = "campaign を設計する。";
+        let s = suppress::scan(text);
+        let findings = scan_document("doc.md", text, text, &s, &ctx);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.detector == "jargon" && f.rule == "jargon-export"),
+            "external で jargon-export が発火しなかった"
+        );
+
+        // inline 抑制（<!-- correo-ignore jargon -->）が他検出器と同じ経路で効くこと。
+        let suppressed_text = "campaign を設計する。 <!-- correo-ignore jargon -->";
+        let s2 = suppress::scan(suppressed_text);
+        let findings2 = scan_document("doc.md", suppressed_text, suppressed_text, &s2, &ctx);
+        assert!(
+            findings2.iter().all(|f| f.detector != "jargon"),
+            "jargon の inline 抑制が効かなかった"
+        );
+    }
+
+    #[test]
+    fn jargon_export_finding_is_advisory_severity() {
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms = vec!["campaign".to_string()];
+        let ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::External,
+            &terms,
+        );
+        let text = "campaign を設計する。";
+        let s = suppress::scan(text);
+        let findings = scan_document("doc.md", text, text, &s, &ctx);
+        let j = findings
+            .iter()
+            .find(|f| f.detector == "jargon")
+            .expect("jargon finding が無い");
+        assert_eq!(j.severity, "advisory");
+    }
 }

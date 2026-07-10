@@ -29,6 +29,20 @@ pub struct Config {
     pub coinage: CoinageCfg,
     #[serde(default)]
     pub rhetoric: RhetoricCfg,
+    /// 読者軸（既定 internal・CLI flag が優先）。
+    #[serde(default)]
+    pub register: Option<String>,
+    #[serde(default)]
+    pub jargon: JargonCfg,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct JargonCfg {
+    /// jargon-export（register=external でのみ発火）の検査対象語彙表 file（--allow と同形式・
+    /// 第 1 列の見出し語だけを候補にする。qoed では docs/handbook/taxonomy.md）。相対 path は
+    /// correo.toml の場所基準。未指定なら jargon-export は候補ゼロで沈黙する。
+    pub vocabulary: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Default)]
@@ -105,6 +119,25 @@ max-sentence = 90
         assert_eq!(cfg.codemix.threshold, Some(6.0));
         assert_eq!(cfg.readability.max_sentence, Some(90));
         assert_eq!(cfg.readability.max_ten, None);
+        assert_eq!(cfg.register, None);
+        assert!(cfg.jargon.vocabulary.is_none());
+    }
+
+    #[test]
+    fn parses_register_and_jargon_vocabulary() {
+        let cfg: Config = toml::from_str(
+            r#"
+register = "external"
+[jargon]
+vocabulary = "docs/handbook/taxonomy.md"
+"#,
+        )
+        .expect("parse");
+        assert_eq!(cfg.register.as_deref(), Some("external"));
+        assert_eq!(
+            cfg.jargon.vocabulary,
+            Some(PathBuf::from("docs/handbook/taxonomy.md"))
+        );
     }
 
     #[test]

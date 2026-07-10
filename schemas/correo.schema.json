@@ -63,6 +63,22 @@
           "description": "一文の最大読点数。超えると HARD 違反（exit 1）。"
         }
       }
+    },
+    "register": {
+      "type": "string",
+      "enum": ["internal", "external"],
+      "default": "internal",
+      "description": "読者軸。CLI flag --register が優先。external のときだけ jargon-export（内輪語の輸出検査）が発火する。internal では allow と同じ語彙表が従来どおり免除リストとして働く（役割は反転しない）。"
+    },
+    "jargon": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vocabulary": {
+          "type": "string",
+          "description": "jargon-export（register=external でのみ発火）の検査対象語彙表 path（--allow と同形式・第 1 列の見出し語だけを候補にする。相対 path は correo.toml の場所基準）。未指定なら jargon-export は候補ゼロで沈黙する。"
+        }
+      }
     }
   }
 }

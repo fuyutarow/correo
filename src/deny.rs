@@ -2,6 +2,8 @@
 // judge の 3-way 裁定の第三バケツ: 自然→無視 / 使い続ける→allow / 確定造語→deny。
 // deny は HARD（exit 1）— 一度「書き直す」と裁定した語の再侵入を機械が阻止する ratchet。
 // fence 内・inline code 内は言及なので対象外（allow/coinage と同じ規約）。
+// 組み込み辞書は 2 種の由来を持つ（BUILTIN=LLM 定型 slop 句、BUILTIN_COINAGE=個別裁定済みの
+// 混種複合）— builtin() で統合して返し、呼び出し側（deny_findings）は区別しない。
 use std::collections::HashMap;
 
 /// 組み込みの slop 常套句（LLM の日本語が高頻度で混入させる定型 — 「実在するが使わない」の
@@ -44,10 +46,32 @@ pub const BUILTIN: &[(&str, &str)] = &[
     ),
 ];
 
-/// BUILTIN を HashMap で返す（cfg.deny と併合し、allow で個別解除するのは呼び出し側）。
+/// 裁定済みの混種複合（英語幹＋漢字接辞）の再侵入防止（2026-07-11・qoed 句レベル指摘）。
+/// BUILTIN（LLM の定型 slop 句）とは判定の性質が別 — こちらは「造語として書き直す」と
+/// 個別に裁定済みの語の ratchet であり、hype/marketing calque ではない。同じ deny の
+/// HARD ratchet 機構（一度書き直すと決めた語の再侵入を機械が阻止する）を共有するため
+/// builtin() で BUILTIN と統合するが、由来を区別するため配列は分ける。
+pub const BUILTIN_COINAGE: &[(&str, &str)] = &[
+    ("closed表", "決着済みの表 へ書き直す"),
+    ("open表", "未決の表 へ書き直す"),
+    ("copies数", "部数 へ書き直す"),
+    ("software層", "ソフトウェア層 へ書き直す"),
+    ("判定家族", "改名済みの旧称 — 現行名へ書き直す"),
+];
+
+/// w が BUILTIN_COINAGE 由来か（pipeline.rs が finding のメッセージ文言を由来ごとに
+/// 出し分けるための判定 — 「LLM stock phrase」という文言は BUILTIN の hype/marketing calque
+/// にしか当てはまらず、混種複合の裁定には別の文言が要る）。
+pub fn is_coinage_term(w: &str) -> bool {
+    BUILTIN_COINAGE.iter().any(|(term, _)| *term == w)
+}
+
+/// BUILTIN ∪ BUILTIN_COINAGE を HashMap で返す（cfg.deny と併合し、allow で個別解除するのは
+/// 呼び出し側）。
 pub fn builtin() -> HashMap<String, String> {
     BUILTIN
         .iter()
+        .chain(BUILTIN_COINAGE.iter())
         .map(|(w, s)| (w.to_string(), s.to_string()))
         .collect()
 }
@@ -103,5 +127,27 @@ mod tests {
         assert_eq!(hits[0].1, "架け橋とな");
         // 常套句を含まない実用文は無音。
         assert!(scan("本機能は二つの系を接続する。", &b).is_empty());
+    }
+
+    #[test]
+    fn builtin_coinage_terms_hit_with_rewrite_suggestion() {
+        // qoed で「書き直す」と裁定済みの混種複合が builtin() に載り、deny の HARD ratchet で
+        // 再侵入が阻止されること（2026-07-11・qoed 句レベル指摘）。
+        let b = builtin();
+        for (w, _) in BUILTIN_COINAGE {
+            let text = format!("この{w}を確認する。");
+            let hits = scan(&text, &b);
+            assert_eq!(hits.len(), 1, "「{w}」が deny で拾われなかった");
+            assert_eq!(hits[0].1, *w);
+        }
+    }
+
+    #[test]
+    fn builtin_coinage_mentions_in_code_are_not_hits() {
+        let text = "`closed表` は言及。\n\n```\nopen表のコード例\n```";
+        assert!(
+            scan(text, &builtin()).is_empty(),
+            "混種複合の言及が deny に落ちた"
+        );
     }
 }

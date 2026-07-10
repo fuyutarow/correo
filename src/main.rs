@@ -15,6 +15,24 @@ enum Format {
     Github,
 }
 
+/// 読者軸。既定は internal（現行動作＝不変）。external は jargon-export を発火させる ──
+/// 語彙表（--jargon-vocabulary・correo.toml の [jargon] vocabulary）が、internal では免除
+/// リスト、external では検査対象語彙として役割を反転する（README §規則台帳・jargon.rs 参照）。
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
+enum RegisterArg {
+    Internal,
+    External,
+}
+
+impl From<RegisterArg> for correo::pipeline::Register {
+    fn from(r: RegisterArg) -> Self {
+        match r {
+            RegisterArg::Internal => correo::pipeline::Register::Internal,
+            RegisterArg::External => correo::pipeline::Register::External,
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "correo",
@@ -60,6 +78,16 @@ enum Command {
         /// 機械的に安全な修正を適用して書き戻す（現在: `することができ`→`でき`）
         #[arg(long)]
         write: bool,
+        /// 読者軸（既定 internal・correo.toml の register で設定可）。external は jargon-export
+        /// を発火させる — 語彙表（--jargon-vocabulary・correo.toml で設定可）に載る語が読者向け
+        /// 散文へ定義なしで使われていないかを検査する。internal では同じ語彙表は従来どおり
+        /// 免除リストのまま。
+        #[arg(long, value_enum)]
+        register: Option<RegisterArg>,
+        /// jargon-export の語彙表 file（--allow と同形式・第 1 列の見出し語を検査対象にする。
+        /// correo.toml の [jargon] vocabulary が主経路・これは補助。register=external でのみ使う）
+        #[arg(long)]
+        jargon_vocabulary: Vec<PathBuf>,
         /// 対象 file（省略時: cwd 以下の *.md を .gitignore 準拠で全走査）
         files: Vec<String>,
     },
@@ -174,6 +202,8 @@ fn main() {
             max_ten,
             format,
             write,
+            register,
+            jargon_vocabulary,
             files,
         } => {
             // biome check に倣う porcelain: 引数ゼロで動く・設定は correo.toml 自動発見・
@@ -191,6 +221,48 @@ fn main() {
             let threshold = threshold.or(cfg.codemix.threshold).unwrap_or(8.0);
             let max_sentence = max_sentence.or(cfg.readability.max_sentence).unwrap_or(100);
             let max_ten = max_ten.or(cfg.readability.max_ten).unwrap_or(4);
+            // 読者軸: CLI flag > correo.toml の register 文字列 > 既定 internal（他の設定項目と
+            // 同じ優先順位規約）。correo.toml の register は自由文字列なので大小文字を吸収する。
+            let register: correo::pipeline::Register =
+                register.map(Into::into).unwrap_or_else(|| {
+                    match cfg
+                        .register
+                        .as_deref()
+                        .map(str::to_ascii_lowercase)
+                        .as_deref()
+                    {
+                        Some("external") => correo::pipeline::Register::External,
+                        _ => correo::pipeline::Register::Internal,
+                    }
+                });
+            // jargon-export の検査対象語彙（register=external でのみ使われる。internal では
+            // 空のままで無害 — jargon_findings が register を見て早期 return する）。
+            let mut jargon_terms: Vec<String> = Vec::new();
+            if register == correo::pipeline::Register::External {
+                let mut vocab_paths: Vec<PathBuf> = jargon_vocabulary.clone();
+                if vocab_paths.is_empty()
+                    && let Some(p) = &cfg.jargon.vocabulary
+                {
+                    let resolved = if p.is_relative() {
+                        cfg_path
+                            .as_ref()
+                            .and_then(|c| c.parent())
+                            .map(|d| d.join(p))
+                            .unwrap_or_else(|| p.clone())
+                    } else {
+                        p.clone()
+                    };
+                    vocab_paths.push(resolved);
+                }
+                for p in &vocab_paths {
+                    jargon_terms.extend(correo::jargon::load_terms(p));
+                }
+                if vocab_paths.is_empty() {
+                    eprintln!(
+                        "correo check: register=external だが jargon 語彙表が未設定 — jargon-export は候補ゼロで沈黙する（--jargon-vocabulary か correo.toml の [jargon] vocabulary で設定）"
+                    );
+                }
+            }
             // 許容語彙 = correo.toml の allow ∪ --allow registry file 群（codemix/coinage 共用）
             let mut exempt: std::collections::HashSet<String> =
                 cfg.allow.iter().map(|w| w.to_lowercase()).collect();
@@ -254,13 +326,17 @@ fn main() {
             let mut sup: std::collections::HashMap<String, correo::suppress::Suppressions> =
                 std::collections::HashMap::new();
             for f in &files {
-                let mut text = match std::fs::read_to_string(f) {
+                let raw = match std::fs::read_to_string(f) {
                     Err(e) => {
                         eprintln!("correo check: {f} read failed: {e} (skip)");
                         continue;
                     }
                     Ok(t) => t,
                 };
+                // jargon-export の用語表判定は strip_html/fix を経る前の構造（markdown `|` 行 /
+                // HTML table・dl tag）を見る必要がある — text は検出器共通の「散文だけ」に
+                // 剥がされていくので、raw を別に保持する（pipeline::scan_document への専用引数）。
+                let mut text = raw.clone();
                 // .html/.htm は tag を剥いで散文だけにしてから全検出器へ通す（broad readership
                 // 向け成果物は HTML artifact だが check に通す経路が無く、利用者が自前の雑な
                 // regex で 2 検出器だけ回して tag 境界の連結（cell固有 等）を大量に誤爆させた
@@ -302,8 +378,10 @@ fn main() {
                     metaphor_lex: &metaphor_lex,
                     user_deny: &user_deny,
                     builtin_deny: &builtin_deny,
+                    register,
+                    jargon_terms: &jargon_terms,
                 };
-                findings.extend(correo::pipeline::scan_document(f, &text, &s, &ctx));
+                findings.extend(correo::pipeline::scan_document(f, &text, &raw, &s, &ctx));
                 sup.insert(f.clone(), s);
             }
             #[cfg(feature = "coinage")]
