@@ -338,12 +338,21 @@ pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
 pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
     let advisory = args.advisory;
     let (hits, allow_len) = collect(&args)?;
+    // strict は高精度 tier ゆえ確定的な指示（rewrite/allow）を出せるが、非 strict（discovery
+    // tier）は機能複合も全列挙する棚卸しに過ぎず、書き直し指示は verdict の詐称になる —
+    // 自己申告して --strict / check へ誘導する（2026-07-11 field report: 245 件を verdict と
+    // 誤読された）。
+    let tail = if args.strict {
+        "rewrite in standard terms, or register in allow-list (--allow)"
+    } else {
+        "discovery tier (functional compounds included); use --strict for the high-precision tier, or run via `correo check`"
+    };
     let violations: Vec<String> = hits
         .iter()
         .map(|h| {
             let surfs: Vec<&str> = h.components.iter().map(|s| s.as_str()).collect();
             format!(
-                "{}:{}: 「{}」 is not a dictionary headword (components={surfs:?}) — rewrite in standard terms, or register in allow-list (--allow)",
+                "{}:{}: 「{}」 is not a dictionary headword (components={surfs:?}) — {tail}",
                 h.file, h.line, h.compound
             )
         })
@@ -356,8 +365,14 @@ pub fn run_coinage(args: CoinageArgs) -> Result<i32> {
         // locate 層（advisory）: 候補を報告し judge の 3-way 分類へ回す。blocking は
         // prh residue（確定造語）が担う — strict tier の実測 FP（語/層/例 tail 等の
         // 生産的接尾辞様に辞書が接尾辞語義を持たない精度天井・2026-07-06）による裁定。
+        // 非 strict は inventory であって verdict でない旨を summary 自身に明記する。
+        let tier_note = if args.strict {
+            ""
+        } else {
+            " (discovery tier — inventory, not verdicts)"
+        };
         println!(
-            "COINAGE CANDIDATES: {} (advisory — judge triages: natural / register in allow / confirmed coinage → deny)",
+            "COINAGE CANDIDATES: {}{tier_note} (advisory — judge triages: natural / register in allow / confirmed coinage → deny)",
             violations.len()
         );
         for v in &violations {

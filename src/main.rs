@@ -28,13 +28,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// ルー語密度（地の文の latin / 100字）。file 無し=stdin。
+    /// ルー語密度（地の文の latin / 100字）。file 無し=stdin。通常は `check` を使う（correo.toml の allow/抑制が効く）。本 subcommand は設定を読まず明示引数のみ。
     Codemix {
         /// 密度閾値（latin / 100 JA字）
         #[arg(long, default_value_t = 8.0)]
         threshold: f64,
         /// allow-list（除外語彙・統制語彙 registry の .md・複数可。coinage と同名 flag に統一）
-        #[arg(long)]
+        #[arg(long, alias = "exempt")]
         allow: Vec<PathBuf>,
         /// 対象 file（無指定=stdin）
         files: Vec<String>,
@@ -45,7 +45,7 @@ enum Command {
         #[arg(long)]
         threshold: Option<f64>,
         /// allow-list registry file の追加注入（correo.toml の allow が主経路・これは補助）
-        #[arg(long)]
+        #[arg(long, alias = "exempt")]
         allow: Vec<PathBuf>,
         /// readability: 一文の最大文字数（既定 100・correo.toml で設定可）
         #[arg(long)]
@@ -92,7 +92,7 @@ enum Command {
         /// 対象 file（無指定=stdin）
         files: Vec<String>,
     },
-    /// 造語（Sudachi 辞書外の複合語）。要 --features coinage。
+    /// 造語（Sudachi 辞書外の複合語）。要 --features coinage。通常は `check`（correo.toml の allow/corpus 照合が効く）。--strict 無しは棚卸し用の discovery tier（機能複合も全列挙）。
     Coinage {
         /// Sudachi 辞書 dir
         #[arg(long)]
