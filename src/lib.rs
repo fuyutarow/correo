@@ -22,6 +22,9 @@
 //! - 内輪語の輸出: `jargon`（register=practice/consume でだけ発火。読者と共有されていない統制
 //!   語彙が定義なしで使われているかを見る ── register=internal では同じ語彙表が免除リストとして
 //!   働く、の逆機能。practice=定義があれば合格・consume=地の文に出てこなければ合格）
+//! - トークン単位のルー語: `latin_token`（codemix/latin-token。register=practice/consume でだけ
+//!   発火。codemix の密度 heuristic では拾えない「長い和文へ疎に埋め込まれた素の英単語」を
+//!   トークン単位で見る ── consume=error・practice=advisory・internal=不発火）
 //! - 語彙の裁定: `deny`（組み込み slop 常套句＋judge 確定裁定の永続 cache）
 //!
 //! 判定の分業: readability の HARD と deny は機械判定が最終（blocking）。他は全て locate 層 —
@@ -35,6 +38,7 @@ pub mod counter;
 pub mod density;
 pub mod deny;
 pub mod jargon;
+pub mod latin_token;
 pub mod notation;
 pub mod pipeline;
 pub mod prose;

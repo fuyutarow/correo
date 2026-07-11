@@ -75,9 +75,16 @@ pub struct CoinageCfg {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct CodemixCfg {
     pub threshold: Option<f64>,
+    /// codemix/latin-token（register=practice/consume でのみ発火）の除外語彙表 file
+    /// （複数可・union。`--allow-vocabulary` と同じ経路）。deny-vocabulary と対の機構 ──
+    /// 形式は同じ TSV（`語` または `語<TAB>備考`。# 行と空行は無視。deny::load_allow_vocabulary）。
+    /// 相対 path は correo.toml の場所基準。exempt（codemix/latin-density の allow）とは別の
+    /// 専用経路（latin-token 専用の許容語彙 — 汎用 allow の巻き添えにしない）。
+    #[serde(default)]
+    pub allow_vocabulary: Vec<PathBuf>,
 }
 
 #[derive(Deserialize, Default)]
@@ -130,6 +137,27 @@ max-sentence = 90
         assert_eq!(cfg.register, None);
         assert!(cfg.jargon.vocabulary.is_none());
         assert!(cfg.deny_vocabulary.is_empty());
+        assert!(cfg.codemix.allow_vocabulary.is_empty());
+    }
+
+    #[test]
+    fn parses_codemix_allow_vocabulary_paths() {
+        let cfg: Config = toml::from_str(
+            r#"
+[codemix]
+threshold = 6.0
+allow-vocabulary = ["lexicons/house-allow.tsv", "lexicons/house-allow2.tsv"]
+"#,
+        )
+        .expect("parse");
+        assert_eq!(cfg.codemix.threshold, Some(6.0));
+        assert_eq!(
+            cfg.codemix.allow_vocabulary,
+            vec![
+                PathBuf::from("lexicons/house-allow.tsv"),
+                PathBuf::from("lexicons/house-allow2.tsv"),
+            ]
+        );
     }
 
     #[test]

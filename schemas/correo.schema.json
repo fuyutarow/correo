@@ -28,6 +28,11 @@
           "type": "number",
           "default": 8.0,
           "description": "地の文の latin/100字 密度の閾値。これ以上で advisory 候補として報告する。"
+        },
+        "allow-vocabulary": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "codemix/latin-token（register=practice|consume でのみ発火するトークン単位のルー語検出）の除外語彙表 file の path（複数可・union。`--allow-vocabulary` と同じ経路）。deny-vocabulary と対の機構 ── 形式は TSV `語`（または `語<TAB>備考`。# 行と空行は無視）。exempt（codemix/latin-density の allow）とは別の専用経路。"
         }
       }
     },

@@ -52,6 +52,11 @@ pub struct Ctx<'a> {
     /// jargon-export の検査対象語彙（register=External のときだけ使う。jargon::load_terms が
     /// 語彙表から第 1 列語を抽出したもの）。Internal では無視される。
     pub jargon_terms: &'a [String],
+    /// codemix/latin-token の除外語彙（`--allow-vocabulary`・correo.toml の
+    /// `[codemix] allow-vocabulary`。deny::load_allow_vocabulary が返す小文字化済み集合）。
+    /// exempt（codemix/latin-density の allow）とは別の専用経路 — deny-vocabulary と
+    /// deny の関係（組み込み既定と利用側 file を分ける）を allow 側でも並行させる設計。
+    pub allow_vocabulary: &'a HashSet<String>,
 }
 
 fn sev(s: Severity) -> &'static str {
@@ -200,6 +205,29 @@ fn counter_findings(text: &str) -> Vec<Finding> {
         .collect()
 }
 
+/// codemix/latin-token は register=Practice/Consume のときだけ発火する（Internal では
+/// codemix/latin-density だけが働く既存動作のまま）。severity は register で分岐する
+/// （consume=error・practice=advisory）── jargon-export と違い本規則は severity 自体が
+/// register 依存なので、latin_token::severity_for を都度呼ぶ。
+fn latin_token_findings(text: &str, ctx: &Ctx) -> Vec<Finding> {
+    if ctx.register == Register::Internal {
+        return Vec::new();
+    }
+    let severity = crate::latin_token::severity_for(ctx.register);
+    crate::latin_token::scan(text, ctx.register, ctx.allow_vocabulary)
+        .into_iter()
+        .map(|f| Finding {
+            detector: "codemix",
+            rule: f.rule.into(),
+            file: String::new(),
+            line: f.line,
+            severity,
+            message: f.msg,
+            data: None,
+        })
+        .collect()
+}
+
 /// jargon-export は register=Practice/Consume のときだけ発火する（Internal では同じ語彙表が
 /// 免除リストとして働く既存動作のまま・不変）。raw は用語表（markdown table / HTML table・dl）の
 /// 列構造を判定するための構造保持テキスト（呼び出し側が strip_html 前のソースを渡す）。
@@ -247,6 +275,7 @@ pub fn scan_document(
             )
         }),
         codemix_findings(text, ctx.exempt, ctx.threshold),
+        latin_token_findings(text, ctx),
         from_violations(
             readability::scan(text, ctx.max_sentence, ctx.max_ten),
             "readability",
@@ -280,6 +309,7 @@ pub fn scan_document(
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn base_ctx<'a>(
         exempt: &'a HashSet<String>,
         allow_set: &'a HashSet<&'a str>,
@@ -288,6 +318,7 @@ mod tests {
         builtin_deny: &'a HashMap<String, String>,
         register: Register,
         jargon_terms: &'a [String],
+        allow_vocabulary: &'a HashSet<String>,
     ) -> Ctx<'a> {
         Ctx {
             max_sentence: 100,
@@ -300,6 +331,7 @@ mod tests {
             builtin_deny,
             register,
             jargon_terms,
+            allow_vocabulary,
         }
     }
 
@@ -313,6 +345,7 @@ mod tests {
         let user_deny = HashMap::new();
         let builtin_deny = HashMap::new();
         let terms = vec!["campaign".to_string()];
+        let allow_vocabulary = HashSet::new();
         let ctx = base_ctx(
             &exempt,
             &allow_set,
@@ -321,6 +354,7 @@ mod tests {
             &builtin_deny,
             Register::Internal,
             &terms,
+            &allow_vocabulary,
         );
         let text = "campaign を設計する。";
         let s = suppress::scan(text);
@@ -340,6 +374,7 @@ mod tests {
         let user_deny = HashMap::new();
         let builtin_deny = HashMap::new();
         let terms = vec!["campaign".to_string()];
+        let allow_vocabulary = HashSet::new();
         let ctx = base_ctx(
             &exempt,
             &allow_set,
@@ -348,6 +383,7 @@ mod tests {
             &builtin_deny,
             Register::Practice,
             &terms,
+            &allow_vocabulary,
         );
         let text = "campaign を設計する。";
         let s = suppress::scan(text);
@@ -379,6 +415,7 @@ mod tests {
         let user_deny = HashMap::new();
         let builtin_deny = HashMap::new();
         let terms = vec!["campaign".to_string()];
+        let allow_vocabulary = HashSet::new();
         let ctx = base_ctx(
             &exempt,
             &allow_set,
@@ -387,6 +424,7 @@ mod tests {
             &builtin_deny,
             Register::Consume,
             &terms,
+            &allow_vocabulary,
         );
         let text = "campaign（測定の実施計画）を設計する。";
         let s = suppress::scan(text);
@@ -407,6 +445,7 @@ mod tests {
         let user_deny = HashMap::new();
         let builtin_deny = HashMap::new();
         let terms = vec!["campaign".to_string()];
+        let allow_vocabulary = HashSet::new();
         let ctx = base_ctx(
             &exempt,
             &allow_set,
@@ -415,6 +454,7 @@ mod tests {
             &builtin_deny,
             Register::Practice,
             &terms,
+            &allow_vocabulary,
         );
         let text = "campaign を設計する。";
         let s = suppress::scan(text);
@@ -424,5 +464,141 @@ mod tests {
             .find(|f| f.detector == "jargon")
             .expect("jargon finding が無い");
         assert_eq!(j.severity, "advisory");
+    }
+
+    // ---- codemix/latin-token（register 軸の第五波・pipeline 配線） ----
+
+    #[test]
+    fn latin_token_is_silent_under_internal_register() {
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms: Vec<String> = vec![];
+        let allow_vocabulary = HashSet::new();
+        let ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::Internal,
+            &terms,
+            &allow_vocabulary,
+        );
+        let text = "統計リスクは baseline との比で表す。";
+        let s = suppress::scan(text);
+        let findings = scan_document("doc.md", text, text, &s, &ctx);
+        assert!(
+            findings.iter().all(|f| f.rule != "latin-token"),
+            "internal で latin-token が発火した: {:?}",
+            findings.iter().map(|f| &f.rule).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn latin_token_fires_error_under_consume_and_advisory_under_practice() {
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms: Vec<String> = vec![];
+        let allow_vocabulary = HashSet::new();
+        let text = "統計リスクは baseline との比で表す。";
+
+        let consume_ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::Consume,
+            &terms,
+            &allow_vocabulary,
+        );
+        let s = suppress::scan(text);
+        let consume_findings = scan_document("doc.md", text, text, &s, &consume_ctx);
+        let c = consume_findings
+            .iter()
+            .find(|f| f.rule == "latin-token")
+            .expect("consume で latin-token finding が無い");
+        assert_eq!(c.severity, "error");
+
+        let practice_ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::Practice,
+            &terms,
+            &allow_vocabulary,
+        );
+        let practice_findings = scan_document("doc.md", text, text, &s, &practice_ctx);
+        let p = practice_findings
+            .iter()
+            .find(|f| f.rule == "latin-token")
+            .expect("practice で latin-token finding が無い");
+        assert_eq!(p.severity, "advisory");
+    }
+
+    #[test]
+    fn latin_token_respects_allow_vocabulary_from_ctx() {
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms: Vec<String> = vec![];
+        let mut allow_vocabulary = HashSet::new();
+        allow_vocabulary.insert("baseline".to_string());
+        let ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::Consume,
+            &terms,
+            &allow_vocabulary,
+        );
+        let text = "統計リスクは baseline との比で表す。";
+        let s = suppress::scan(text);
+        let findings = scan_document("doc.md", text, text, &s, &ctx);
+        assert!(
+            findings.iter().all(|f| f.rule != "latin-token"),
+            "allow-vocabulary 登録語が発火した: {:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn latin_token_inline_suppression_works_like_other_detectors() {
+        let exempt = HashSet::new();
+        let allow_set = HashSet::new();
+        let metaphor_lex = vec![];
+        let user_deny = HashMap::new();
+        let builtin_deny = HashMap::new();
+        let terms: Vec<String> = vec![];
+        let allow_vocabulary = HashSet::new();
+        let ctx = base_ctx(
+            &exempt,
+            &allow_set,
+            &metaphor_lex,
+            &user_deny,
+            &builtin_deny,
+            Register::Consume,
+            &terms,
+            &allow_vocabulary,
+        );
+        let text = "統計リスクは baseline との比で表す。 <!-- correo-ignore latin-token -->";
+        let s = suppress::scan(text);
+        let findings = scan_document("doc.md", text, text, &s, &ctx);
+        assert!(
+            findings.iter().all(|f| f.rule != "latin-token"),
+            "latin-token の inline 抑制が効かなかった"
+        );
     }
 }

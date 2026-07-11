@@ -104,6 +104,12 @@ enum Command {
         /// `語<TAB>書き直し案`（# 行と空行は無視）。
         #[arg(long)]
         deny_vocabulary: Vec<PathBuf>,
+        /// codemix/latin-token（register=practice/consume でのみ発火）の除外語彙表 file
+        /// （複数可・union。correo.toml の [codemix] allow-vocabulary が主経路・これは補助）。
+        /// deny-vocabulary と対の機構 — 形式は同じ TSV（`語` または `語<TAB>備考`。# 行と
+        /// 空行は無視）。
+        #[arg(long)]
+        allow_vocabulary: Vec<PathBuf>,
         /// 対象 file（省略時: cwd 以下の *.md を .gitignore 準拠で全走査）
         files: Vec<String>,
     },
@@ -221,6 +227,7 @@ fn main() {
             register,
             jargon_vocabulary,
             deny_vocabulary,
+            allow_vocabulary,
             files,
         } => {
             // biome check に倣う porcelain: 引数ゼロで動く・設定は correo.toml 自動発見・
@@ -333,6 +340,27 @@ fn main() {
             }
             user_deny.retain(|w, _| !allow_set.contains(w.as_str()));
 
+            // codemix/latin-token の除外語彙（deny-vocabulary と対の機構・同じ解決規約:
+            // CLI --allow-vocabulary が補助・correo.toml の [codemix] allow-vocabulary が主経路。
+            // 両方指定時は union・相対 path は correo.toml の場所基準）。
+            let mut allow_vocab_paths: Vec<PathBuf> = allow_vocabulary.clone();
+            allow_vocab_paths.extend(cfg.codemix.allow_vocabulary.iter().map(|p| {
+                if p.is_relative() {
+                    cfg_path
+                        .as_ref()
+                        .and_then(|c| c.parent())
+                        .map(|d| d.join(p))
+                        .unwrap_or_else(|| p.clone())
+                } else {
+                    p.clone()
+                }
+            }));
+            let mut latin_token_allow: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for p in &allow_vocab_paths {
+                latin_token_allow.extend(correo::deny::load_allow_vocabulary(p));
+            }
+
             // メタファー語彙表（data・optional）: correo.toml 指定（相対は toml の場所基準）
             // > exe 相対 share/correo/（brew 配布）。無ければ metaphor-density は沈黙。
             let metaphor_lex: Vec<(String, String)> = cfg
@@ -418,6 +446,7 @@ fn main() {
                     builtin_deny: &builtin_deny,
                     register,
                     jargon_terms: &jargon_terms,
+                    allow_vocabulary: &latin_token_allow,
                 };
                 findings.extend(correo::pipeline::scan_document(f, &text, &raw, &s, &ctx));
                 sup.insert(f.clone(), s);

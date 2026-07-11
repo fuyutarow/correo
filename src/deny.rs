@@ -10,7 +10,7 @@
 // `correo.toml` の `[deny] vocabulary = "<path>"`（または `--deny-vocabulary <path>`）で
 // 自前の禁止語彙表を渡す機構を持つ（load_vocabulary。rhetoric.rs の metaphor_lexicon と
 // 同じ TSV data 契約 — 語彙は機構でなく data であり、binary に hardcode しない）。
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// 組み込みの slop 常套句（LLM の日本語が高頻度で混入させる定型 — 「実在するが使わない」の
 /// 裁定を出荷時に同梱する。Vale が Google/Microsoft style を package で配るのと同型の
@@ -77,6 +77,29 @@ pub fn load_vocabulary(path: &std::path::Path) -> HashMap<String, String> {
             Some((word, rewrite)) => (word.trim().to_string(), rewrite.trim().to_string()),
             None => (l.to_string(), String::new()),
         })
+        .collect()
+}
+
+/// 利用側プロジェクトの許容語彙表（`correo.toml` の `[codemix] allow-vocabulary` か
+/// `--allow-vocabulary`）を読む。load_vocabulary（deny 側）と構造を並行させた対の機構 ──
+/// flag 解析 → config 併合 → loader → runtime lookup の各段が同形（README「allow-vocabulary
+/// 語彙表」参照）。deny と違い書き直し案の値は持たない（allow は「この語はこのまま許す」の
+/// membership だけが意味を持つ）ので、値部分（タブ以降）があっても読み捨てて HashSet で返す。
+/// 形式は同じ TSV 契約: `語`（または `語<TAB>備考`。`#` 行と空行は無視）。file が無い／
+/// 読めなければ空集合（vocabulary 自体が optional なので既定は無音）。lookup は小文字化して
+/// 比較する契約（codemix::domain_vocab・latin_token::scan と同じ）。
+pub fn load_allow_vocabulary(path: &std::path::Path) -> HashSet<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return HashSet::new();
+    };
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            let word = l.split_once('\t').map_or(l, |(w, _)| w).trim();
+            word.to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
         .collect()
 }
 
@@ -213,5 +236,42 @@ mod tests {
             "語彙表由来の言及が deny に落ちた"
         );
         std::fs::remove_file(&path).ok();
+    }
+
+    // ---- load_allow_vocabulary（allow-vocabulary・deny-vocabulary と対の機構） ----
+
+    #[test]
+    fn load_allow_vocabulary_parses_bare_words_lowercased() {
+        let path = write_temp_vocab("allow1.tsv", "Baseline\nMenu\n");
+        let v = load_allow_vocabulary(&path);
+        assert_eq!(v.len(), 2);
+        assert!(v.contains("baseline"));
+        assert!(v.contains("menu"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_allow_vocabulary_ignores_value_after_tab() {
+        // deny と同じ TSV 形（語<TAB>備考）を受理するが、値は読み捨てて membership だけ使う。
+        let path = write_temp_vocab("allow2.tsv", "baseline\thouse-specific term\n");
+        let v = load_allow_vocabulary(&path);
+        assert_eq!(v.len(), 1);
+        assert!(v.contains("baseline"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_allow_vocabulary_skips_comment_and_blank_lines() {
+        let path = write_temp_vocab("allow3.tsv", "# comment\n\nmenu\n  \n");
+        let v = load_allow_vocabulary(&path);
+        assert_eq!(v.len(), 1);
+        assert!(v.contains("menu"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_allow_vocabulary_missing_file_returns_empty_set_not_error() {
+        let v = load_allow_vocabulary(std::path::Path::new("/nonexistent/correo-allow-vocab.tsv"));
+        assert!(v.is_empty());
     }
 }
