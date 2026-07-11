@@ -27,8 +27,11 @@
 //      形（スラッシュ・ドット連結を含む token）もここで追加除外する）。
 //   5. allow-vocabulary 語彙表に登録済みの語。
 //
-// 判定基準は register + 除外規則のみで決まる — 語彙表（built-in katakana table）の membership は
-// suggestion 文言の enrichment にだけ使い、発火の有無には一切影響しない（要件どおり）。
+// 判定基準は register + 除外規則のみで決まる — カタカナ語彙表の membership は suggestion 文言の
+// enrichment にだけ使い、発火の有無には一切影響しない（要件どおり）。語彙は機構でなく data —
+// binary に hardcode せず lexicons/katakana-lex.tsv を正本とする（metaphor-lex.tsv と同じ TSV
+// data 契約。correo.toml の `[codemix] katakana-lexicon` > exe 相対 share/correo/ > 不在なら
+// 汎用 suggestion へ劣化・検出は不変）。scan の katakana_lex 引数がその表を受け取る。
 use regex::Regex;
 
 use crate::pipeline::Register;
@@ -39,119 +42,14 @@ pub struct Finding {
     pub msg: String,
 }
 
-/// 一般語 → 標準カタカナ音訳の built-in table（50–100 語・汎用語のみ・domain jargon は含まない）。
-/// suggestion 文言の enrichment 専用 — 発火判定には影響しない（表になくても違反は成立する）。
-/// アルファベット順。
-pub const KATAKANA_TABLE: &[(&str, &str)] = &[
-    ("access", "アクセス"),
-    ("agenda", "アジェンダ"),
-    ("allocation", "アロケーション"),
-    ("approach", "アプローチ"),
-    ("archive", "アーカイブ"),
-    ("baseline", "ベースライン"),
-    ("batch", "バッチ"),
-    ("benchmark", "ベンチマーク"),
-    ("bias", "バイアス"),
-    ("boundary", "バウンダリ"),
-    ("budget", "バジェット"),
-    ("cache", "キャッシュ"),
-    ("campaign", "キャンペーン"),
-    ("capacity", "キャパシティ"),
-    ("checklist", "チェックリスト"),
-    ("cluster", "クラスタ"),
-    ("collective", "集団"),
-    ("compliance", "コンプライアンス"),
-    ("component", "コンポーネント"),
-    ("context", "コンテキスト"),
-    ("coverage", "カバレッジ"),
-    ("dashboard", "ダッシュボード"),
-    ("dataset", "データセット"),
-    ("default", "デフォルト"),
-    ("deploy", "デプロイ"),
-    ("directive", "ディレクティブ"),
-    ("efficiency", "効率"),
-    ("endpoint", "エンドポイント"),
-    ("engine", "エンジン"),
-    ("feedback", "フィードバック"),
-    ("framework", "フレームワーク"),
-    ("gateway", "ゲートウェイ"),
-    ("guideline", "ガイドライン"),
-    ("handoff", "ハンドオフ"),
-    ("impact", "インパクト"),
-    ("incident", "インシデント"),
-    ("index", "インデックス"),
-    ("infrastructure", "インフラ"),
-    ("insight", "インサイト"),
-    ("instance", "インスタンス"),
-    ("interface", "インターフェース"),
-    ("inventory", "インベントリ"),
-    ("issue", "イシュー"),
-    ("iteration", "イテレーション"),
-    ("latency", "レイテンシ"),
-    ("layer", "レイヤー"),
-    ("ledger", "台帳"),
-    ("lifecycle", "ライフサイクル"),
-    ("margin", "マージン"),
-    ("measurement", "測定"),
-    ("menu", "メニュー"),
-    ("metric", "メトリクス"),
-    ("milestone", "マイルストーン"),
-    ("module", "モジュール"),
-    ("monitor", "モニター"),
-    ("offset", "オフセット"),
-    ("outcome", "アウトカム"),
-    ("overhead", "オーバーヘッド"),
-    ("owner", "オーナー"),
-    ("pipeline", "パイプライン"),
-    ("platform", "プラットフォーム"),
-    ("policy", "ポリシー"),
-    ("portfolio", "ポートフォリオ"),
-    ("priority", "優先度"),
-    ("protocol", "プロトコル"),
-    ("provider", "プロバイダ"),
-    ("proxy", "プロキシ"),
-    ("query", "クエリ"),
-    ("quota", "クォータ"),
-    ("registry", "レジストリ"),
-    ("resilience", "レジリエンス"),
-    ("resource", "リソース"),
-    ("roadmap", "ロードマップ"),
-    ("rollback", "ロールバック"),
-    ("rollout", "ロールアウト"),
-    ("sampling", "サンプリング"),
-    ("scaffold", "足場"),
-    ("schedule", "スケジュール"),
-    ("scope", "スコープ"),
-    ("session", "セッション"),
-    ("shot", "ショット"),
-    ("snapshot", "スナップショット"),
-    ("stakeholder", "ステークホルダー"),
-    ("standard", "標準"),
-    ("status", "ステータス"),
-    ("strategy", "戦略"),
-    ("summary", "サマリー"),
-    ("survey", "サーベイ"),
-    ("template", "テンプレート"),
-    ("threshold", "閾値"),
-    ("throughput", "スループット"),
-    ("timeline", "タイムライン"),
-    ("toolchain", "ツールチェーン"),
-    ("tradeoff", "トレードオフ"),
-    ("update", "アップデート"),
-    ("upstream", "アップストリーム"),
-    ("vendor", "ベンダー"),
-    ("version", "バージョン"),
-    ("workflow", "ワークフロー"),
-    ("workload", "ワークロード"),
-];
-
-/// KATAKANA_TABLE から語を引く（小文字化して比較）。無ければ None。
-fn katakana_for(word: &str) -> Option<&'static str> {
+/// カタカナ語彙表から語を引く（小文字化して比較）。無ければ None。表は data
+/// （lexicons/katakana-lex.tsv が正本）— 呼び出し側が load して scan へ渡し、本 module は
+/// 語彙を持たない。
+fn katakana_for<'a>(word: &str, lex: &'a [(String, String)]) -> Option<&'a str> {
     let lower = word.to_lowercase();
-    KATAKANA_TABLE
-        .iter()
+    lex.iter()
         .find(|(w, _)| *w == lower)
-        .map(|(_, k)| *k)
+        .map(|(_, k)| k.as_str())
 }
 
 /// ALLCAPS 略語（長さ 2–6・SDP/POVM/SIC 等）。
@@ -263,11 +161,13 @@ fn latin_runs(line: &str, exempt_lower: &std::collections::HashSet<String>) -> V
 /// 文書 → codemix/latin-token の全 finding。register=Internal では常に空（呼び出し側が
 /// register を見て早期 return する契約は他の register-aware 検出器 — jargon.rs — と同じ）。
 /// allow は許容語彙（correo.toml の allow ∪ --allow-vocabulary 由来。小文字化して比較する
-/// 契約は codemix::domain_vocab と同じ）。
+/// 契約は codemix::domain_vocab と同じ）。katakana_lex は suggestion enrichment 専用の
+/// 外部語彙表（空なら汎用 suggestion へ劣化・発火の有無には影響しない）。
 pub fn scan(
     text: &str,
     register: Register,
     allow: &std::collections::HashSet<String>,
+    katakana_lex: &[(String, String)],
 ) -> Vec<Finding> {
     if register == Register::Internal {
         return Vec::new();
@@ -279,14 +179,14 @@ pub fn scan(
         for run in latin_runs(line, allow) {
             let phrase = run.join(" ");
             let suggestion = if run.len() == 1 {
-                match katakana_for(&run[0]) {
+                match katakana_for(&run[0], katakana_lex) {
                     Some(k) => format!("{k} へ"),
                     None => "カタカナ語化・和訳・等幅化のいずれかへ".to_string(),
                 }
             } else {
                 let hints: Vec<String> = run
                     .iter()
-                    .filter_map(|w| katakana_for(w).map(|k| format!("{w}→{k}")))
+                    .filter_map(|w| katakana_for(w, katakana_lex).map(|k| format!("{w}→{k}")))
                     .collect();
                 if hints.is_empty() {
                     "カタカナ語化・和訳・等幅化のいずれかへ".to_string()
@@ -331,14 +231,23 @@ mod tests {
         std::collections::HashSet::new()
     }
 
+    /// 出荷する正本 TSV（lexicons/katakana-lex.tsv）を test でもそのまま使う — fixture の
+    /// 複写を持たず、表の契約（形式・件数）の regression も本 file の test が兼ねる。
+    fn lex() -> Vec<(String, String)> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lexicons/katakana-lex.tsv");
+        let v = crate::rhetoric::load_lexicon(&p);
+        assert!(!v.is_empty(), "lexicons/katakana-lex.tsv が読めない");
+        v
+    }
+
     #[test]
     fn internal_register_never_fires() {
-        assert!(scan(REPRO, Register::Internal, &allow()).is_empty());
+        assert!(scan(REPRO, Register::Internal, &allow(), &lex()).is_empty());
     }
 
     #[test]
     fn consume_register_finds_three_findings_for_repro_sentence() {
-        let hits = scan(REPRO, Register::Consume, &allow());
+        let hits = scan(REPRO, Register::Consume, &allow(), &lex());
         assert_eq!(
             hits.len(),
             3,
@@ -355,7 +264,7 @@ mod tests {
 
     #[test]
     fn practice_register_finds_same_three_findings() {
-        let hits = scan(REPRO, Register::Practice, &allow());
+        let hits = scan(REPRO, Register::Practice, &allow(), &lex());
         assert_eq!(hits.len(), 3);
     }
 
@@ -365,6 +274,7 @@ mod tests {
             "shot allocation を最適化する。",
             Register::Consume,
             &allow(),
+            &lex(),
         );
         assert_eq!(
             hits.len(),
@@ -383,7 +293,12 @@ mod tests {
 
     #[test]
     fn allcaps_acronym_does_not_fire() {
-        let hits = scan("この設計は POVM を使う。", Register::Consume, &allow());
+        let hits = scan(
+            "この設計は POVM を使う。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert!(
             hits.is_empty(),
             "POVM が発火した: {:?}",
@@ -394,13 +309,23 @@ mod tests {
     #[test]
     fn short_and_long_allcaps_boundary() {
         // 2–6 字の ALLCAPS は略語。7 字以上は略語扱いしない（境界を明示的に固定）。
-        let hits = scan("この SIC と SDP を比較する。", Register::Consume, &allow());
+        let hits = scan(
+            "この SIC と SDP を比較する。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert!(hits.is_empty());
     }
 
     #[test]
     fn identifier_with_digit_does_not_fire() {
-        let hits = scan("この T1 の緩和時間を測る。", Register::Consume, &allow());
+        let hits = scan(
+            "この T1 の緩和時間を測る。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert!(
             hits.is_empty(),
             "T1 が発火した: {:?}",
@@ -410,7 +335,12 @@ mod tests {
 
     #[test]
     fn identifier_with_underscore_does_not_fire() {
-        let hits = scan("この c_iid を評価する。", Register::Consume, &allow());
+        let hits = scan(
+            "この c_iid を評価する。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert!(
             hits.is_empty(),
             "c_iid が発火した: {:?}",
@@ -424,6 +354,7 @@ mod tests {
             "この ReplayReport を確認する。",
             Register::Consume,
             &allow(),
+            &lex(),
         );
         assert!(
             hits.is_empty(),
@@ -435,7 +366,7 @@ mod tests {
     #[test]
     fn backtick_code_span_does_not_fire() {
         let text = "`baseline` は識別子の言及。地の文には無い。";
-        let hits = scan(text, Register::Consume, &allow());
+        let hits = scan(text, Register::Consume, &allow(), &lex());
         assert!(
             hits.is_empty(),
             "backtick 内が発火した: {:?}",
@@ -446,7 +377,7 @@ mod tests {
     #[test]
     fn fence_code_block_does_not_fire() {
         let text = "説明文。\n\n```\nbaseline = compute_baseline()\n```\n";
-        let hits = scan(text, Register::Consume, &allow());
+        let hits = scan(text, Register::Consume, &allow(), &lex());
         assert!(
             hits.is_empty(),
             "fence 内が発火した: {:?}",
@@ -458,7 +389,7 @@ mod tests {
     fn allow_vocabulary_word_does_not_fire() {
         let mut a = allow();
         a.insert("baseline".to_string());
-        let hits = scan(REPRO, Register::Consume, &a);
+        let hits = scan(REPRO, Register::Consume, &a, &lex());
         assert!(
             !hits.iter().any(|f| f.msg.contains("「baseline」")),
             "allow 登録語が発火した: {:?}",
@@ -471,7 +402,7 @@ mod tests {
     #[test]
     fn url_is_excluded() {
         let text = "詳細は https://example.com/path/to/page を参照。";
-        let hits = scan(text, Register::Consume, &allow());
+        let hits = scan(text, Register::Consume, &allow(), &lex());
         assert!(
             hits.is_empty(),
             "URL が発火した: {:?}",
@@ -482,7 +413,7 @@ mod tests {
     #[test]
     fn schemeless_path_is_excluded() {
         let text = "設定は docs/handbook/taxonomy.md にある。";
-        let hits = scan(text, Register::Consume, &allow());
+        let hits = scan(text, Register::Consume, &allow(), &lex());
         assert!(
             hits.is_empty(),
             "path が発火した: {:?}",
@@ -493,7 +424,7 @@ mod tests {
     #[test]
     fn doi_is_excluded() {
         let text = "出典は doi:10.1234/example.5678 である。";
-        let hits = scan(text, Register::Consume, &allow());
+        let hits = scan(text, Register::Consume, &allow(), &lex());
         assert!(
             hits.is_empty(),
             "DOI が発火した: {:?}",
@@ -503,7 +434,12 @@ mod tests {
 
     #[test]
     fn suggestion_uses_katakana_table_entry_when_present() {
-        let hits = scan("これは baseline である。", Register::Consume, &allow());
+        let hits = scan(
+            "これは baseline である。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert!(
             hits.iter().any(|f| f.msg.contains("ベースライン")),
             "katakana table の候補語が suggestion に出ない: {:?}",
@@ -513,7 +449,12 @@ mod tests {
 
     #[test]
     fn suggestion_falls_back_to_generic_hint_when_word_not_in_table() {
-        let hits = scan("これは zorptastic である。", Register::Consume, &allow());
+        let hits = scan(
+            "これは zorptastic である。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert!(
             hits.iter()
                 .any(|f| f.msg.contains("カタカナ語化・和訳・等幅化のいずれかへ")),
@@ -525,13 +466,23 @@ mod tests {
     #[test]
     fn table_membership_does_not_gate_detection_only_enriches_message() {
         // zorptastic は表に無いが、それでも violation は成立する（要件: 表は発火条件に無関係）。
-        let hits = scan("これは zorptastic である。", Register::Consume, &allow());
+        let hits = scan(
+            "これは zorptastic である。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert_eq!(hits.len(), 1);
     }
 
     #[test]
     fn single_char_math_fragment_does_not_fire() {
-        let hits = scan("O(n) の x を評価する。", Register::Consume, &allow());
+        let hits = scan(
+            "O(n) の x を評価する。",
+            Register::Consume,
+            &allow(),
+            &lex(),
+        );
         assert!(
             hits.is_empty(),
             "数式破片が発火した: {:?}",
@@ -545,6 +496,7 @@ mod tests {
             "quantum error correction を導入する。",
             Register::Consume,
             &allow(),
+            &lex(),
         );
         assert_eq!(
             hits.len(),
@@ -556,13 +508,24 @@ mod tests {
     }
 
     #[test]
-    fn katakana_table_has_no_domain_jargon_only_general_words() {
-        // 要件: 50–100 語・汎用語のみ（ドメイン jargon を含まない）。件数レンジだけを固定する
-        // （語彙の中身の妥当性は目視裁定 — 本 test は範囲の回帰）。
+    fn katakana_lexicon_has_no_domain_jargon_only_general_words() {
+        // 要件: 50–100 語・汎用語のみ（ドメイン jargon を含まない）。件数レンジと外部化時の
+        // 棄却裁定（shot・collective は量子測定ドメインの残渣）を固定する
+        // （語彙の中身の妥当性は目視裁定 — 本 test は範囲と裁定の回帰）。
+        let lex = lex();
         assert!(
-            KATAKANA_TABLE.len() >= 50 && KATAKANA_TABLE.len() <= 100,
-            "table サイズが範囲外: {}",
-            KATAKANA_TABLE.len()
+            lex.len() >= 50 && lex.len() <= 100,
+            "語彙表サイズが範囲外: {}",
+            lex.len()
+        );
+        assert!(
+            !lex.iter().any(|(w, _)| w == "shot" || w == "collective"),
+            "棄却済みの domain 語が語彙表へ再侵入した"
+        );
+        assert!(
+            lex.iter()
+                .all(|(w, _)| w.chars().all(|c| c.is_ascii_lowercase())),
+            "見出し語は小文字英単語のみの契約"
         );
     }
 }

@@ -387,6 +387,37 @@ fn main() {
                 .map(|p| correo::rhetoric::load_lexicon(&p))
                 .unwrap_or_default();
 
+            // カタカナ語彙表（data・optional）: metaphor-lex と同じ解決規約（correo.toml 指定 >
+            // exe 相対 share/correo/）。無ければ latin-token は汎用 suggestion へ劣化する
+            // （enrichment 専用 — 発火の有無には影響しない）。
+            let katakana_lex: Vec<(String, String)> = cfg
+                .codemix
+                .katakana_lexicon
+                .as_ref()
+                .map(|p| {
+                    if p.is_relative() {
+                        cfg_path
+                            .as_ref()
+                            .and_then(|c| c.parent())
+                            .map(|d| d.join(p))
+                            .unwrap_or_else(|| p.clone())
+                    } else {
+                        p.clone()
+                    }
+                })
+                .or_else(|| {
+                    std::env::current_exe().ok().and_then(|exe| {
+                        exe.parent()
+                            .map(|d| d.join("../share/correo/katakana-lex.tsv"))
+                    })
+                })
+                .map(|p| correo::rhetoric::load_lexicon(&p))
+                .unwrap_or_default();
+
+            // counter/missing-counter の追加単位語（`[counter] unit-words`・組み込みとの union）。
+            let counter_units: std::collections::HashSet<String> =
+                cfg.counter.unit_words.iter().cloned().collect();
+
             let mut findings: Vec<correo::report::Finding> = Vec::new();
             let mut fixed = 0usize;
             let mut sup: std::collections::HashMap<String, correo::suppress::Suppressions> =
@@ -447,6 +478,8 @@ fn main() {
                     register,
                     jargon_terms: &jargon_terms,
                     allow_vocabulary: &latin_token_allow,
+                    katakana_lex: &katakana_lex,
+                    counter_units: &counter_units,
                 };
                 findings.extend(correo::pipeline::scan_document(f, &text, &raw, &s, &ctx));
                 sup.insert(f.clone(), s);

@@ -43,6 +43,8 @@ allow = [
 
 [codemix]
 threshold = 8.0
+# カタカナ語彙表 = data（metaphor-lexicon と同じ契約・suggestion enrichment 専用で発火には不関与）
+katakana-lexicon = "lexicons/katakana-lex.tsv"
 
 [coinage]
 # 実コーパスの語彙表（mise run setup:corpus が jawiki 記事タイトル ~2.4M 語を配置）。

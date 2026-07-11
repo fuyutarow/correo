@@ -1,7 +1,7 @@
 # Release — tag 契機でプラットフォーム別のプリビルド binary を GitHub Release に置く。
 # 目的: brew/cargo が各自でコンパイルする現状をやめ、DL で入る配布にする。
 # 辞書（~207MB）は binary に含めない — CLI が `correo setup` で ~/.cache へ取得する（2026-07-09 方針）。
-# 同梱するのは binary ＋ metaphor-lex.tsv（data）だけ。
+# 同梱するのは binary ＋ lexicons/ の語彙表 data（metaphor-lex.tsv・katakana-lex.tsv）だけ。
 #
 # v0.2607.0 実走で linux x86_64 と macOS arm64 は成功。macOS Intel は専用 runner の枠不足で
 # 詰まったため、Intel は arm64 runner 上でクロスコンパイルする（Intel runner 依存を排除・2026-07-09）。
@@ -39,7 +39,7 @@ jobs:
             cargo build --release --features coinage --target "$t"
             tar -czf "correo-${{ github.ref_name }}-$t.tar.gz" \
               -C "target/$t/release" correo \
-              -C "${GITHUB_WORKSPACE}/lexicons" metaphor-lex.tsv
+              -C "${GITHUB_WORKSPACE}/lexicons" metaphor-lex.tsv katakana-lex.tsv
           done
       - name: Upload to GitHub Release
         env:

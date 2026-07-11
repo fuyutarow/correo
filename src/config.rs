@@ -41,6 +41,18 @@ pub struct Config {
     pub register: Option<String>,
     #[serde(default)]
     pub jargon: JargonCfg,
+    #[serde(default)]
+    pub counter: CounterCfg,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct CounterCfg {
+    /// counter/missing-counter の追加単位語（組み込み UNIT_WORDS との union・大文字小文字は
+    /// 一致で比較）。ドメイン固有の単位（QoI 等）は組み込みに焼き込まず、利用側がここで
+    /// 持ち込む — deny-vocabulary / katakana-lexicon と同じ「house 語彙は利用側」の規約。
+    #[serde(default)]
+    pub unit_words: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -85,6 +97,13 @@ pub struct CodemixCfg {
     /// 専用経路（latin-token 専用の許容語彙 — 汎用 allow の巻き添えにしない）。
     #[serde(default)]
     pub allow_vocabulary: Vec<PathBuf>,
+    /// codemix/latin-token の suggestion enrichment 用カタカナ語彙表（TSV: 小文字英単語<TAB>
+    /// 置き換え・# 行は無視）。語彙は機構でなく data — binary に hardcode しない（正本
+    /// lexicons/katakana-lex.tsv・裁定記録が comment で同居）。相対 path は correo.toml の
+    /// 場所基準。未指定なら exe 相対 share/correo/katakana-lex.tsv を探し、無ければ汎用
+    /// suggestion へ劣化する（発火の有無には一切影響しない — rhetoric の metaphor_lexicon と
+    /// 同じ TSV data 契約・沈黙でなく劣化なのが唯一の差）。
+    pub katakana_lexicon: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Default)]
@@ -138,6 +157,26 @@ max-sentence = 90
         assert!(cfg.jargon.vocabulary.is_none());
         assert!(cfg.deny_vocabulary.is_empty());
         assert!(cfg.codemix.allow_vocabulary.is_empty());
+        assert!(cfg.codemix.katakana_lexicon.is_none());
+        assert!(cfg.counter.unit_words.is_empty());
+    }
+
+    #[test]
+    fn parses_katakana_lexicon_and_counter_unit_words() {
+        let cfg: Config = toml::from_str(
+            r#"
+[codemix]
+katakana-lexicon = "lexicons/katakana-lex.tsv"
+[counter]
+unit-words = ["QoI", "shots"]
+"#,
+        )
+        .expect("parse");
+        assert_eq!(
+            cfg.codemix.katakana_lexicon,
+            Some(PathBuf::from("lexicons/katakana-lex.tsv"))
+        );
+        assert_eq!(cfg.counter.unit_words, vec!["QoI", "shots"]);
     }
 
     #[test]

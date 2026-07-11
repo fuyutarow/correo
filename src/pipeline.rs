@@ -57,6 +57,13 @@ pub struct Ctx<'a> {
     /// exempt（codemix/latin-density の allow）とは別の専用経路 — deny-vocabulary と
     /// deny の関係（組み込み既定と利用側 file を分ける）を allow 側でも並行させる設計。
     pub allow_vocabulary: &'a HashSet<String>,
+    /// codemix/latin-token の suggestion enrichment 用カタカナ語彙表（`[codemix]
+    /// katakana-lexicon` > exe 相対 share/correo/katakana-lex.tsv。metaphor_lex と同じ
+    /// TSV data 契約）。空なら汎用 suggestion へ劣化 — 発火の有無には一切影響しない。
+    pub katakana_lex: &'a [(String, String)],
+    /// counter/missing-counter の追加単位語（`[counter] unit-words`。組み込み UNIT_WORDS との
+    /// union — ドメイン固有の単位を組み込みに焼き込まず利用側が持ち込む経路）。
+    pub counter_units: &'a HashSet<String>,
 }
 
 fn sev(s: Severity) -> &'static str {
@@ -190,8 +197,8 @@ fn completeness_findings(text: &str) -> Vec<Finding> {
         .collect()
 }
 
-fn counter_findings(text: &str) -> Vec<Finding> {
-    counter::scan(text)
+fn counter_findings(text: &str, ctx: &Ctx) -> Vec<Finding> {
+    counter::scan(text, ctx.counter_units)
         .into_iter()
         .map(|c| Finding {
             detector: "counter",
@@ -214,7 +221,7 @@ fn latin_token_findings(text: &str, ctx: &Ctx) -> Vec<Finding> {
         return Vec::new();
     }
     let severity = crate::latin_token::severity_for(ctx.register);
-    crate::latin_token::scan(text, ctx.register, ctx.allow_vocabulary)
+    crate::latin_token::scan(text, ctx.register, ctx.allow_vocabulary, ctx.katakana_lex)
         .into_iter()
         .map(|f| Finding {
             detector: "codemix",
@@ -289,7 +296,7 @@ pub fn scan_document(
         density_findings(text),
         notation_findings(text),
         completeness_findings(text),
-        counter_findings(text),
+        counter_findings(text, ctx),
         jargon_findings(raw, text, ctx),
     ];
     let mut out = Vec::new();
@@ -308,6 +315,13 @@ pub fn scan_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 空の追加単位語集合（'static 貸出用）。katakana_lex の空 `&[]` と同じ扱いで、
+    /// suggestion enrichment / 単位語拡張を検査しないテストの既定値。
+    fn empty_units() -> &'static HashSet<String> {
+        static E: std::sync::OnceLock<HashSet<String>> = std::sync::OnceLock::new();
+        E.get_or_init(HashSet::new)
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn base_ctx<'a>(
@@ -332,6 +346,8 @@ mod tests {
             register,
             jargon_terms,
             allow_vocabulary,
+            katakana_lex: &[],
+            counter_units: empty_units(),
         }
     }
 

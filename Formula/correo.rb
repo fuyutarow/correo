@@ -26,8 +26,11 @@ class Correo < Formula
 
   def install
     bin.install "correo"
-    # メタファー語彙表（data）— binary は exe 相対 (bin/../share/correo/) で解決する。
+    # 語彙表（data）— binary は exe 相対 (bin/../share/correo/) で解決する。
+    # katakana-lex.tsv は v0.2607.4 以降の tarball にのみ同梱（旧資産でも install が
+    # 落ちないよう存在確認つき — 無ければ latin-token の suggestion が汎用文言になるだけ）。
     (share/"correo").install "metaphor-lex.tsv"
+    (share/"correo").install "katakana-lex.tsv" if File.exist?("katakana-lex.tsv")
   end
 
   def caveats

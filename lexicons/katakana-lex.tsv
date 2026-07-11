@@ -1,0 +1,111 @@
+# katakana-lex.tsv — 一般語 → 標準的な置き換えの語彙（codemix/latin-token が読む data）
+#
+# 役割は suggestion 文言の enrichment **専用** — 発火の有無には一切影響しない
+# （表になくても違反は成立する・latin_token.rs の要件どおり）。binary に hardcode しない理由:
+# 集合は data であり、裁定履歴ごと編集・差し替え可能であるべきだから（metaphor-lex.tsv と
+# 同じ扱い・同じ TSV 契約）。
+#
+# 形式: 小文字英単語<TAB>置き換え（標準カタカナ音訳、または定訳が音訳より通じる場合は和訳）
+# 採用基準: 汎用語のみ（50–100 語・domain jargon は載せない — 利用側は correo.toml の
+# `[codemix] katakana-lexicon` で自前の表に差し替えられる）。
+# 裁定記録（2026-07-11・binary からの外部化時）: shot（ショット）・collective（集団）は
+# 量子測定ドメインの文書経由で混入した domain 語のため棄却 — 「汎用語のみ」の契約に反する。
+# アルファベット順。
+access	アクセス
+agenda	アジェンダ
+allocation	アロケーション
+approach	アプローチ
+archive	アーカイブ
+baseline	ベースライン
+batch	バッチ
+benchmark	ベンチマーク
+bias	バイアス
+boundary	バウンダリ
+budget	バジェット
+cache	キャッシュ
+campaign	キャンペーン
+capacity	キャパシティ
+checklist	チェックリスト
+cluster	クラスタ
+compliance	コンプライアンス
+component	コンポーネント
+context	コンテキスト
+coverage	カバレッジ
+dashboard	ダッシュボード
+dataset	データセット
+default	デフォルト
+deploy	デプロイ
+directive	ディレクティブ
+efficiency	効率
+endpoint	エンドポイント
+engine	エンジン
+feedback	フィードバック
+framework	フレームワーク
+gateway	ゲートウェイ
+guideline	ガイドライン
+handoff	ハンドオフ
+impact	インパクト
+incident	インシデント
+index	インデックス
+infrastructure	インフラ
+insight	インサイト
+instance	インスタンス
+interface	インターフェース
+inventory	インベントリ
+issue	イシュー
+iteration	イテレーション
+latency	レイテンシ
+layer	レイヤー
+ledger	台帳
+lifecycle	ライフサイクル
+margin	マージン
+measurement	測定
+menu	メニュー
+metric	メトリクス
+milestone	マイルストーン
+module	モジュール
+monitor	モニター
+offset	オフセット
+outcome	アウトカム
+overhead	オーバーヘッド
+owner	オーナー
+pipeline	パイプライン
+platform	プラットフォーム
+policy	ポリシー
+portfolio	ポートフォリオ
+priority	優先度
+protocol	プロトコル
+provider	プロバイダ
+proxy	プロキシ
+query	クエリ
+quota	クォータ
+registry	レジストリ
+resilience	レジリエンス
+resource	リソース
+roadmap	ロードマップ
+rollback	ロールバック
+rollout	ロールアウト
+sampling	サンプリング
+scaffold	足場
+schedule	スケジュール
+scope	スコープ
+session	セッション
+snapshot	スナップショット
+stakeholder	ステークホルダー
+standard	標準
+status	ステータス
+strategy	戦略
+summary	サマリー
+survey	サーベイ
+template	テンプレート
+threshold	閾値
+throughput	スループット
+timeline	タイムライン
+toolchain	ツールチェーン
+tradeoff	トレードオフ
+update	アップデート
+upstream	アップストリーム
+vendor	ベンダー
+version	バージョン
+workflow	ワークフロー
+workload	ワークロード

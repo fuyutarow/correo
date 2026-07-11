@@ -33,6 +33,21 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "codemix/latin-token（register=practice|consume でのみ発火するトークン単位のルー語検出）の除外語彙表 file の path（複数可・union。`--allow-vocabulary` と同じ経路）。deny-vocabulary と対の機構 ── 形式は TSV `語`（または `語<TAB>備考`。# 行と空行は無視）。exempt（codemix/latin-density の allow）とは別の専用経路。"
+        },
+        "katakana-lexicon": {
+          "type": "string",
+          "description": "codemix/latin-token の suggestion enrichment 用カタカナ語彙表の path（TSV: 小文字英単語<TAB>置き換え・# 行は無視・相対 path は correo.toml の場所基準）。語彙は機構でなく data — 裁定記録は file 内 comment に同居する。未指定なら exe 相対 share/correo/katakana-lex.tsv、無ければ汎用 suggestion へ劣化（発火の有無には一切影響しない）。"
+        }
+      }
+    },
+    "counter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit-words": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "counter/missing-counter の追加単位語（組み込みの SI・計算機標準単位との union・大文字小文字は一致で比較）。ドメイン固有の単位（QoI 等）は組み込みに焼き込まず、利用側がここで持ち込む。"
         }
       }
     },
