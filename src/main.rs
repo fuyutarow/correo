@@ -2,7 +2,7 @@
 //! 検出ロジックは lib（codemix / coinage）が持ち、この binary は薄く委譲するだけ。calque は順次追加。
 //! 引数解釈は clap derive（旧・手書き iter parse を置換 — `--flag=value`・`--`・未知フラグ error・
 //! `--help` を得る）。hook はこの binary へ薄く委譲する。
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -186,6 +186,40 @@ max-sentence = 100
 max-ten = 4
 "#;
 
+/// correo.toml 相対の path 解決規約の唯一の実装（config.rs の各 key が文書化する「相対 path は
+/// correo.toml の場所基準」）。絶対 path はそのまま、相対 path は設定 file の親 dir 基準。
+/// 設定 file が無い（既定値で動作中）場合は相対のまま返す＝cwd 基準。
+fn cfg_relative(cfg_path: Option<&Path>, p: &Path) -> PathBuf {
+    if p.is_relative() {
+        cfg_path
+            .and_then(|c| c.parent())
+            .map(|d| d.join(p))
+            .unwrap_or_else(|| p.to_path_buf())
+    } else {
+        p.to_path_buf()
+    }
+}
+
+/// 語彙表（TSV data・optional）の共通ロード手順。優先順位は correo.toml 指定（相対は
+/// cfg_relative 規約）、無ければ exe 相対 share/correo/(name)（brew 配布）。どちらも無ければ
+/// 空を返し、規則側が沈黙／汎用文言へ劣化する（metaphor-lex / katakana-lex 共通の契約）。
+fn load_share_lexicon(
+    cfg_path: Option<&Path>,
+    explicit: Option<&PathBuf>,
+    share_name: &str,
+) -> Vec<(String, String)> {
+    explicit
+        .map(|p| cfg_relative(cfg_path, p))
+        .or_else(|| {
+            std::env::current_exe().ok().and_then(|exe| {
+                exe.parent()
+                    .map(|d| d.join("../share/correo").join(share_name))
+            })
+        })
+        .map(|p| correo::rhetoric::load_lexicon(&p))
+        .unwrap_or_default()
+}
+
 fn main() {
     match Cli::parse().command {
         Command::Calque { advisory, files } => {
@@ -269,16 +303,7 @@ fn main() {
                 if vocab_paths.is_empty()
                     && let Some(p) = &cfg.jargon.vocabulary
                 {
-                    let resolved = if p.is_relative() {
-                        cfg_path
-                            .as_ref()
-                            .and_then(|c| c.parent())
-                            .map(|d| d.join(p))
-                            .unwrap_or_else(|| p.clone())
-                    } else {
-                        p.clone()
-                    };
-                    vocab_paths.push(resolved);
+                    vocab_paths.push(cfg_relative(cfg_path.as_deref(), p));
                 }
                 for p in &vocab_paths {
                     jargon_terms.extend(correo::jargon::load_terms(p));
@@ -324,17 +349,11 @@ fn main() {
             // correo.toml の deny-vocabulary が主経路。両方指定時は union）。相対 path は
             // correo.toml の場所基準（jargon.vocabulary と同じ解決規約）。
             let mut vocab_paths: Vec<PathBuf> = deny_vocabulary.clone();
-            vocab_paths.extend(cfg.deny_vocabulary.iter().map(|p| {
-                if p.is_relative() {
-                    cfg_path
-                        .as_ref()
-                        .and_then(|c| c.parent())
-                        .map(|d| d.join(p))
-                        .unwrap_or_else(|| p.clone())
-                } else {
-                    p.clone()
-                }
-            }));
+            vocab_paths.extend(
+                cfg.deny_vocabulary
+                    .iter()
+                    .map(|p| cfg_relative(cfg_path.as_deref(), p)),
+            );
             for p in &vocab_paths {
                 user_deny.extend(correo::deny::load_vocabulary(p));
             }
@@ -344,75 +363,32 @@ fn main() {
             // CLI --allow-vocabulary が補助・correo.toml の [codemix] allow-vocabulary が主経路。
             // 両方指定時は union・相対 path は correo.toml の場所基準）。
             let mut allow_vocab_paths: Vec<PathBuf> = allow_vocabulary.clone();
-            allow_vocab_paths.extend(cfg.codemix.allow_vocabulary.iter().map(|p| {
-                if p.is_relative() {
-                    cfg_path
-                        .as_ref()
-                        .and_then(|c| c.parent())
-                        .map(|d| d.join(p))
-                        .unwrap_or_else(|| p.clone())
-                } else {
-                    p.clone()
-                }
-            }));
+            allow_vocab_paths.extend(
+                cfg.codemix
+                    .allow_vocabulary
+                    .iter()
+                    .map(|p| cfg_relative(cfg_path.as_deref(), p)),
+            );
             let mut latin_token_allow: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
             for p in &allow_vocab_paths {
                 latin_token_allow.extend(correo::deny::load_allow_vocabulary(p));
             }
 
-            // メタファー語彙表（data・optional）: correo.toml 指定（相対は toml の場所基準）
-            // > exe 相対 share/correo/（brew 配布）。無ければ metaphor-density は沈黙。
-            let metaphor_lex: Vec<(String, String)> = cfg
-                .rhetoric
-                .metaphor_lexicon
-                .as_ref()
-                .map(|p| {
-                    if p.is_relative() {
-                        cfg_path
-                            .as_ref()
-                            .and_then(|c| c.parent())
-                            .map(|d| d.join(p))
-                            .unwrap_or_else(|| p.clone())
-                    } else {
-                        p.clone()
-                    }
-                })
-                .or_else(|| {
-                    std::env::current_exe().ok().and_then(|exe| {
-                        exe.parent()
-                            .map(|d| d.join("../share/correo/metaphor-lex.tsv"))
-                    })
-                })
-                .map(|p| correo::rhetoric::load_lexicon(&p))
-                .unwrap_or_default();
+            // メタファー語彙表（data・optional）: 無ければ metaphor-density は沈黙。
+            let metaphor_lex = load_share_lexicon(
+                cfg_path.as_deref(),
+                cfg.rhetoric.metaphor_lexicon.as_ref(),
+                "metaphor-lex.tsv",
+            );
 
-            // カタカナ語彙表（data・optional）: metaphor-lex と同じ解決規約（correo.toml 指定 >
-            // exe 相対 share/correo/）。無ければ latin-token は汎用 suggestion へ劣化する
+            // カタカナ語彙表（data・optional）: 無ければ latin-token は汎用 suggestion へ劣化する
             // （enrichment 専用 — 発火の有無には影響しない）。
-            let katakana_lex: Vec<(String, String)> = cfg
-                .codemix
-                .katakana_lexicon
-                .as_ref()
-                .map(|p| {
-                    if p.is_relative() {
-                        cfg_path
-                            .as_ref()
-                            .and_then(|c| c.parent())
-                            .map(|d| d.join(p))
-                            .unwrap_or_else(|| p.clone())
-                    } else {
-                        p.clone()
-                    }
-                })
-                .or_else(|| {
-                    std::env::current_exe().ok().and_then(|exe| {
-                        exe.parent()
-                            .map(|d| d.join("../share/correo/katakana-lex.tsv"))
-                    })
-                })
-                .map(|p| correo::rhetoric::load_lexicon(&p))
-                .unwrap_or_default();
+            let katakana_lex = load_share_lexicon(
+                cfg_path.as_deref(),
+                cfg.codemix.katakana_lexicon.as_ref(),
+                "katakana-lex.tsv",
+            );
 
             // counter/missing-counter の追加単位語（`[counter] unit-words`・組み込みとの union）。
             let counter_units: std::collections::HashSet<String> =
@@ -496,17 +472,7 @@ fn main() {
                             Ok(rest) => std::env::var("HOME")
                                 .map(|h| std::path::PathBuf::from(h).join(rest))
                                 .unwrap_or_else(|_| p.clone()),
-                            Err(_) => {
-                                if p.is_relative() {
-                                    cfg_path
-                                        .as_ref()
-                                        .and_then(|c| c.parent())
-                                        .map(|d| d.join(p))
-                                        .unwrap_or_else(|| p.clone())
-                                } else {
-                                    p.clone()
-                                }
-                            }
+                            Err(_) => cfg_relative(cfg_path.as_deref(), p),
                         };
                         match correo::coinage::load_corpus(&p) {
                             Ok(s) => Some(s),

@@ -48,8 +48,38 @@ run = "cargo run --quiet -- check"
 
 # 集約 gate（CI 相当）。cargo check は入れない: clippy がコンパイル＋lint を兼ねる上位互換ゆえ重複。
 [tasks.check]
-description = "全 gate 集約: fmt:check + lint + test + lint:self"
-depends = ["fmt:check", "lint", "test", "lint:self"]
+description = "全 gate 集約: fmt:check + lint + test + lint:self + version:check"
+depends = ["fmt:check", "lint", "test", "lint:self", "version:check"]
+
+# version 規約（CalVer 0.YYMM.z）の機械 gate。規則は prose でなく hook が持つ:
+# 「出荷物（src/・lexicons/・Cargo.toml・Cargo.lock）が最終 release tag から変化しているなら
+#  version は tag より厳密に大きい」。正本 script は .githooks/pre-commit（one home）。
+[tasks."version:check"]
+description = "version-guard: 出荷物が最終 release tag から変化しているなら bump 済みであることを検査（pre-commit と同じ・作業樹基準）"
+run = "sh .githooks/pre-commit --worktree"
+
+[tasks."setup:hooks"]
+description = "repo の git hooks を有効化（core.hooksPath → .githooks・version-guard が commit 時に効く）"
+run = "git config core.hooksPath .githooks && echo 'core.hooksPath = .githooks'"
+
+[tasks.bump]
+description = "version の z を進める（同月なら z+1・月替わりなら 0.YYMM.0）。tag より既に進んでいれば no-op。CalVer next の計算はこのタスクだけが持つ"
+run = '''
+tag=$(git describe --tags --abbrev=0 --match 'v*'); tag_ver=${tag#v}
+ver=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+if [ "$ver" != "$tag_ver" ] && [ "$(printf '%s\n%s\n' "$tag_ver" "$ver" | sort -V | tail -n1)" = "$ver" ]; then
+  echo "already bumped: $ver > $tag_ver"; exit 0
+fi
+yymm=$(date +%y%m)
+case "$tag_ver" in
+  0.$yymm.*) next="0.$yymm.$(( ${tag_ver##*.} + 1 ))" ;;
+  *)         next="0.$yymm.0" ;;
+esac
+command -v cargo-set-version >/dev/null 2>&1 || cargo install cargo-edit
+cargo set-version "$next"
+cargo check --quiet
+echo "bumped: $ver -> $next"
+'''
 
 [tasks."setup:sudachidict"]
 description = "Sudachi 辞書(core) を sudachidict-core wheel から ~/.cache/correo へ抽出（coinage の live エンジン用・resolve_dict_dir の最終 fallback と一致・要 uv）"

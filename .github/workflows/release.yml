@@ -30,6 +30,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # tag と Cargo.toml の version の不一致は配布物の取り違え — build 前に遮断する
+      # （commit 時の bump 漏れは .githooks/pre-commit の version-guard が既に deny している）。
+      - name: Assert tag matches Cargo.toml version
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          test "v$v" = "${{ github.ref_name }}" || {
+            echo "tag ${{ github.ref_name }} != Cargo.toml v$v — mise run bump で version を揃えてから tag を打ち直す"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build & package each target (coinage feature = Sudachi 造語検出込み)

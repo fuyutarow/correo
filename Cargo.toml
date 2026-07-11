@@ -1,7 +1,9 @@
 [package]
 name = "correo"
-# versioning: 0.{yymm}.z（CalVer 風 — minor が西暦下2桁+月、patch が同月内の増分）
-version = "0.2607.3"
+# versioning: 0.{yymm}.z（CalVer 風 — minor が西暦下2桁+月、patch が同月内の増分）。
+# 規約の機械 gate: 出荷物が最終 release tag から変化したら bump（.githooks/pre-commit・
+# `mise run version:check`）。次番号は `mise run bump` が計算する。
+version = "0.2607.4"
 edition = "2024"
 description = "日本語実用文の lint ── LLM slop（ルー語 codemix・造語/混種語 coinage・動詞カルク）と、木下是雄の原則のうち機械的に判定できるもの（readability: 文長・読点・文体混在・二重否定・ぼかし・指示語）。事実性・hype は対象外。"
 license = "MIT OR Apache-2.0"
@@ -23,7 +25,7 @@ clap = { version = "4", features = ["derive"] }   # CLI 引数（user 指定: �
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 toml = "1.1.2"
-ignore = "0.4.27"
+ignore = "0.4.28"
 flate2 = "1.1.9"
 lol_html = "3.0.0"
 
