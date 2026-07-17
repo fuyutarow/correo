@@ -7,7 +7,7 @@
 use crate::report::{Finding, Severity, Violation};
 use crate::{
     calque, codemix, completeness, counter, density, deny, jargon, notation, readability, rhetoric,
-    structure, suppress,
+    rhythm, structure, suppress,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -291,6 +291,7 @@ pub fn scan_document(
             rhetoric::scan(text, ctx.allow_set, ctx.metaphor_lex),
             "rhetoric",
         ),
+        from_violations(rhythm::scan(text), "rhythm"),
         from_violations(structure::scan(text), "structure"),
         calque_findings(text),
         density_findings(text),

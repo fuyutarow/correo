@@ -65,6 +65,14 @@
 
 - 装飾メタファーの密度（「発射台」「密輸」「解き放つ」級の直訳比喩 — 語彙は binary に持たず `lexicons/metaphor-lex.tsv` の **data**。採用 28 語幹と棄却 35 語の裁定記録が file 内に同居し、検出時は語彙と書き換え指示を列挙して judge へ渡す）。対立法「ではなく」と中点二重ダッシュの挿入と見出し副題の統一率は、**2 指標以上の同時超過でだけ** 1 件に合成する。中点二重ダッシュ自体は notation/arrow と別の性質を見る。こちらが見るのは文体の指紋（密度）で、記号が果たす役割の肩代わりではない。単独では正当な技法であり、rate 単独の発火は人間の名文を先に撃つと反証で実測された（青空文庫の古典は生成文 corpus より対立法率が上に座る）。30 文未満は計測不能として沈黙する。
 
+**リズムの単調さ — rhythm**（文体の指紋・全て advisory・文書単位）
+
+- 出自: coji/natural-japanese の 7 モデル×406 本実測（2026-07-17 蒸留・zenn「AI臭は語彙よりリズムに出る」）。禁止語・翻訳調が皆無でも**文長のメリハリの欠如**が残る — 文長リズム均質の文書発火率は gpt-5.6-sol 88%・Sonnet 5 55% とモデル横断の指紋で、逆に語彙系規則は較正で削除が相次いだ（「最後に」「まさに」は人間の日常語）。rhetoric が装飾の**過剰**を見るのに対し、こちらは変化の**欠如**を見る別性質。
+- **flat-rhythm** — 地の文（終端記号で閉じた文。bullet・blockquote は除外 — 並列構造と引用は長さが揃うのが正当）の文長 burstiness (σ−μ)/(σ+μ) が −0.40 未満。モーラでなく字数で測る（Sudachi は optional 依存・burstiness はスケール不変）。出典の閾値は移植せず、correo 自身の文分割規約で再較正した（人間 16 本〔青空随筆 8・pre-2020 web 技術記事 5・官公庁 3〕× AI 30 本〔sonnet 生成・文体指示なし〕: 人間 FP 0/15・AI 検出 8/11。最近接の人間は官公庁ガイドラインの −0.362 — 法令・手順の文体は文長が揃いがちで、これ以上詰めると人間の実務文を撃つ）。30 文未満は計測不能として沈黙する。
+- **uniform-paragraphs** — 非 bullet 段落の文数 CV < 0.26（6 段落以上・段落平均 2〜6 文のときだけ）。「3 文段落の量産」の指紋。平均 2 文未満（1 文 1 段落の web 文体）と 6 文超（長い均質段落 — 較正で青空随筆 2 本が平均 10〜13.7 文/段落に座った）は正当な人間文体なのでゲートで除外する。較正: 人間 FP 0/8・AI 7/26（出典実測の Sonnet 17% と同 tier）。
+- 見送り: 体言止めゼロ（出典: essay で人間 60% vs AI 0% が体言止めを使用 — だが correo の対象は実用文で、体言止めの欠如は実用文では正当）・lag-1 自己相関（出典でも info 止まりで弁別力の実測なし — 指標を増やさない）。
+- 出典実測の副産物 2 件は既存規則の反証・傍証として採録した: 文頭反復の文書発火率は人間 93% vs AI 41%（structure/opener-repetition を総量規制でなく「3 文連続」の狭い形に限定する根拠）、対立法比率は人間中央値 1.5 vs AI 8.3/100 文（rhetoric の閾値 4.0/100 文の独立収束 — 別 corpus・別実装で同じ向き・同じ桁）。
+
 **語彙の裁定 — deny**
 
 - **slop-phrase（組み込み）** — LLM 常套句（`架け橋となる`・`可能性を解き放つ`・`いかがでしたか` 等）を出荷時の裁定として HARD で弾く。Vale の style 配布物に相当する「意見のある既定」— 解除はその語を allow に書く（拒否権は利用者にある）。correo が本体に焼き込むのはこの LLM 定型句だけである — 特定プロジェクトが個別に「書き直す」と裁定した語（house coinage）は組み込みにしない。組み込みにすると、そのプロジェクトの語彙裁定が correo を使う全リポジトリへ強制されてしまう（correo はドメイン非依存が設計原則。位置づけ参照）。
@@ -140,13 +148,15 @@ module 分割は性質で切り、出自はこの表が規則ごとに記す。�
 | readability/kanji-run | 可読性 | regex 7 連続+ | textlint 移植（max-kanji-continuous-len） | advisory |
 | readability/exclamation | トーン | regex | 木下＋textlint（no-exclamation-question-mark） | advisory |
 | structure/bullet-template | 定型構造 | 行 regex×3 連続 | 独自。no-ai-list-formatting 相当 | advisory |
-| structure/opener-repetition | 定型構造 | 接頭 6 字×3 文連続 | 独自 | advisory |
+| structure/opener-repetition | 定型構造 | 接頭 6 字×3 文連続 | 独自（反証採録 2026-07-17: 文頭反復の文書発火率は人間 93% vs AI 41%〔coji/natural-japanese 実測〕— 人間が多用する技法ゆえ総量規制にせず 3 文連続の狭い形に限定する根拠） | advisory |
 | structure/connector-pileup | 定型構造 | regex×3 文連続 | 独自。ai-tech-writing-guideline 相当 | advisory |
 | structure/colon-continuation | 定型構造 | ひらがな＋コロン→block 隣接 | preset-ai-writing 移植（Sudachi 不要化） | advisory |
 | density/low-information-density | 情報密度 | deflate 圧縮率 < 11 bits/字 | 独自（Shannon） | advisory |
 | density/near-duplicate | 情報密度 | 字 bigram 類似 ≥ 0.65 | 独自 | advisory |
 | rhetoric/metaphor-density | 修辞密度 | 外部語彙表 data×rate（言及・引用・表は除外） | 独自（較正 fleet 2026-07-09・採用/棄却の裁定は語彙表内に記録） | advisory |
-| rhetoric/stylometric-uniformity | 修辞密度 | 対立法/ダッシュ/副題統一の composite（2+ 指標） | 独自（同上・単独 rate 発火は反証により禁止） | advisory |
+| rhetoric/stylometric-uniformity | 修辞密度 | 対立法/ダッシュ/副題統一の composite（2+ 指標） | 独自（同上・単独 rate 発火は反証により禁止。対立法率の外部収束: 人間中央値 1.5 vs AI 8.3/100 文〔coji/natural-japanese 実測・2026-07-17 採録〕） | advisory |
+| rhythm/flat-rhythm | リズムの単調さ | 地の文の文長 burstiness (σ−μ)/(σ+μ) < −0.40・30 文以上・bullet/引用除外 | coji/natural-japanese 7 モデル×406 本実測の蒸留（2026-07-17。閾値は correo の文分割規約で再較正: 人間 FP 0/15・AI 8/11・最近接の人間は官公庁の −0.362） | advisory |
+| rhythm/uniform-paragraphs | リズムの単調さ | 段落文数 CV < 0.26（6 段落以上・平均 2〜6 文のみ） | 同上（人間 FP 0/8・AI 7/26。1 文 1 段落の web 文体と長段落の古典文体は平均文数ゲートで除外） | advisory |
 | deny/slop-phrase | 語彙の裁定 | 語幹辞書（組み込み 14 語＝LLM 定型 slop 句） | 独自＋preset-ai-writing hype 辞書から精度選別 | error |
 | deny/denied-term | 語彙の裁定 | user 辞書（correo.toml `[deny]` ∪ `deny-vocabulary` file 群） | judge の確定裁定（house coinage は利用側 file・組み込みにしない） | error |
 | notation/arrow | 台帳記法の漏出 | regex（→・⇒・⟹） | 独自（2026-07-11・台帳体の実務文書から読者向け文書へ複写された HTML 事例。台帳体の読者面への漏出。較正: 陽性 corpus 18/18） | advisory |
@@ -195,7 +205,7 @@ binary は ~1.8MB と小さい — Sudachi 辞書（~207MB）は同梱せず **C
 correo setup   # ~/.cache/correo へ辞書を取得。以後は環境変数なしで coinage が動く
 ```
 
-辞書不要の検出器（codemix / calque / readability / rhetoric / structure / density）は setup なしで動く。ソースから入れる場合は `cargo install --git https://github.com/fuyutarow/correo`（`--features coinage` 既定）。
+辞書不要の検出器（codemix / calque / readability / rhetoric / rhythm / structure / density）は setup なしで動く。ソースから入れる場合は `cargo install --git https://github.com/fuyutarow/correo`（`--features coinage` 既定）。
 
 ## 使い方
 
@@ -233,7 +243,7 @@ correo check --deny-vocabulary lexicons/house-coinage.tsv
 
 `check` の指摘は `file:line: [検出器/規則] 説明` の一行形式。exit 1 に数えるのは error
 （readability の HARD 違反と deny）。codemix・coinage・calque・structure・density・rhetoric・
-jargon は advisory（judge へ渡す候補）として数える。
+rhythm・jargon は advisory（judge へ渡す候補）として数える。
 `--no-default-features` でビルドすると coinage を外した純 codemix になる（Sudachi 依存なし）。
 HTML 内の `<!-- correo-ignore -->` は行内抑制のためのコメントだが、tag 剥ぎで一緒に消えるため効かない（build 生成物からの検出を想定した仕様で、抑制は source 側で行う前提）。
 

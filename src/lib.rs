@@ -12,6 +12,9 @@
 //! - 情報密度: `density`（圧縮率 bits/字・段落近重複）
 //! - 修辞密度: `rhetoric`（対立法/ダッシュ/副題統一の composite・装飾メタファー語彙 —
 //!   文体の指紋であって明晰さの欠陥でない。rate 単独で発火せず、全て advisory で judge へ）
+//! - リズムの単調さ: `rhythm`（文長 burstiness・段落あたり文数 CV — 「AI 臭は語彙よりリズムに
+//!   出る」の蒸留〔coji/natural-japanese 7 モデル×406 本実測・2026-07〕。rhetoric が装飾の
+//!   過剰を見るのに対し、こちらは変化の欠如を見る別性質。全て advisory で judge へ）
 //! - 台帳記法の漏出: `notation`（矢印・全角イコール・括弧内 3 連結 — 台帳体から読者向け散文への
 //!   複写事故。rhetoric の「——」密度とは別性質＝記号が文法的役割を肩代わりしているかを見る）
 //! - 助数詞の欠落: `counter`（数字＋ラテン名詞が助詞・句読点に直結 — 台帳体の圧縮表記
@@ -45,6 +48,7 @@ pub mod prose;
 pub mod readability;
 pub mod report;
 pub mod rhetoric;
+pub mod rhythm;
 pub mod setup;
 pub mod structure;
 pub mod suppress;
