@@ -1,6 +1,8 @@
 # correo — mise task runner。
 # [tools] は宣言しない: Rust toolchain は既存の cargo/rustup をそのまま使う（mise 管理外）。
-# 命名規則: 区切りは ":" のみ。形は <domain>:<action>。do/verify は X + X:check。check = 全 gate 集約。
+# 命名規則(wiring-mise-tasks 契約): 区切りは ":" のみ。形は <domain>:<action>。do/verify は X + X:check。check = 全 gate 集約。
+# setup は意図的に無い（cargo が build 時に依存解決・Rust 方式。setup:* は任意の辞書/hook 導入）:
+# mise-contract: waive setup -- cargo resolves deps at build; setup:* are optional dict/hook installs
 
 [tasks.fmt]
 alias = "f"                                        # ← `mise run f` はこの alias で解決する（要件）
@@ -12,10 +14,12 @@ description = "整形チェック（CI 用・非破壊）"
 run = "cargo fmt --all -- --check"
 
 [tasks.lint]
+alias = "l"
 description = "clippy 静的解析（全 target/feature・warning を deny）"
 run = "cargo clippy --all-targets --all-features -- -D warnings"
 
 [tasks.test]
+alias = "t"
 description = "cargo test（codemix は無辞書で走る; coinage は要 Sudachi 辞書）"
 run = "cargo test"
 
@@ -28,6 +32,7 @@ run = "cargo build --release"
 # --incompatible で major を跨いだ最新まで上げる（git tag 固定の sudachi は対象外）。
 # 破壊は後段の check が捕える運用: 実行後は必ず mise run check で検収する。
 [tasks.up]
+alias = "u"
 description = "依存を最新へ一括更新（Cargo.toml の要求を最新 major へ + Cargo.lock 同期）。実行後は mise run check"
 run = '''
 command -v cargo-upgrade >/dev/null 2>&1 || cargo install cargo-edit
@@ -48,6 +53,7 @@ run = "cargo run --quiet -- check"
 
 # 集約 gate（CI 相当）。cargo check は入れない: clippy がコンパイル＋lint を兼ねる上位互換ゆえ重複。
 [tasks.check]
+alias = "c"
 description = "全 gate 集約: fmt:check + lint + test + lint:self + version:check"
 depends = ["fmt:check", "lint", "test", "lint:self", "version:check"]
 
