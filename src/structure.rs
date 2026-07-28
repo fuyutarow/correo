@@ -10,7 +10,7 @@ use regex::Regex;
 /// connector-pileup・opener-repetition（文単位）。抽出は prose.rs の単一 home に委譲。
 pub fn scan(text: &str) -> Vec<Violation> {
     let mut v = Vec::new();
-    let defenced = crate::prose::strip_fences(text);
+    let defenced = crate::prose::strip_source_blocks(text);
     let sents = crate::prose::sentences(text);
 
     // 「- **見出し**: 説明」形式の箇条書きが 3 連続 — 生成文の指紋（革新性：/効率性： の列）。

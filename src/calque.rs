@@ -28,7 +28,7 @@ pub fn scan(text: &str) -> Vec<Finding> {
     )
     .unwrap();
     let inline = Regex::new(r"`[^`]*`").unwrap();
-    let defenced = crate::prose::strip_fences(text);
+    let defenced = crate::prose::strip_source_blocks(text);
     let mut out = Vec::new();
     for (i, raw) in defenced.lines().enumerate() {
         let clean = inline.replace_all(raw, "");

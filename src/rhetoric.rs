@@ -85,7 +85,7 @@ pub fn scan(
     let heading = Regex::new(r"^#{2,} ").unwrap();
     let gloss = Regex::new(r"^#{2,} .+ — ").unwrap();
     let (mut ht, mut hg) = (0usize, 0usize);
-    let defenced = crate::prose::strip_fences(text);
+    let defenced = crate::prose::strip_source_blocks(text);
     for line in defenced.lines() {
         if heading.is_match(line) {
             ht += 1;

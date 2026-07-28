@@ -108,7 +108,7 @@ pub fn scan(text: &str, deny: &HashMap<String, String>) -> Vec<(usize, String, S
     if deny.is_empty() {
         return vec![];
     }
-    let defenced = crate::prose::strip_fences(text);
+    let defenced = crate::prose::strip_source_blocks(text);
     let inline = regex::Regex::new(r"`[^`]*`").unwrap();
     let mut out = vec![];
     for (i, line) in defenced.lines().enumerate() {

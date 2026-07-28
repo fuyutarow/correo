@@ -298,14 +298,15 @@ pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
             // -U0 では context 行は無い; 削除行 (-) は新 file 行番号を進めない
         }
     } else if args.files.is_empty() {
-        // fence 内はコード例・inline code は語の「言及」＝どちらも散文でない（fence strip は
-        // 同数改行置換で行番号不変・prose.rs 共有。inline strip は行内処理で行番号に影響なし）。
+        // fence 内はコード例・display 数式は LaTeX ソース・inline code は語の「言及」＝どれも
+        // 散文でない（block strip は同数改行置換で行番号不変・prose.rs 共有。inline strip は
+        // 行内処理で行番号に影響なし）。
         // diff モードは対象外: 断片に fence ペアの文脈が無く、対にならない ``` を誤爆させるより
         // 追加行をそのまま見る方が安全。
         let inline = Regex::new(r"`[^`]*`").unwrap();
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf).ok();
-        let buf = crate::prose::strip_fences(&buf);
+        let buf = crate::prose::strip_source_blocks(&buf);
         for (i, line) in buf.lines().enumerate() {
             // markdown 表は構造データで散文でない — cell の圧縮表記（読点数・文連続 等）を
             // 造語候補にしない（README 規則台帳で実測した FP class・2026-07-09）。
@@ -320,7 +321,7 @@ pub fn collect(args: &CoinageArgs) -> Result<(Vec<CoinageHit>, usize)> {
             match fs::read_to_string(f) {
                 Err(e) => eprintln!("correo coinage: {f} 読込失敗: {e} (skip)"),
                 Ok(t) => {
-                    let t = crate::prose::strip_fences(&t);
+                    let t = crate::prose::strip_source_blocks(&t);
                     for (i, line) in t.lines().enumerate() {
                         if line.trim_start().starts_with('|') {
                             continue; // 表は散文でない（stdin 側と同じ規約）

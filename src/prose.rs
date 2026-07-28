@@ -1,7 +1,7 @@
 // prose.rs — markdown 散文抽出の単一 home（Biome「1-parse, multiple-passes」の correo 版）。
 // 検出器（codemix / readability / 将来の calque・Tier2 proxy・Tier3 座標出力）は本 module の
-// 散文単位を共有し、markdown の扱い（fence / 構造行 / inline code / URL / 段落 / bullet 行群 /
-// 文分割）を各自で再実装しない。
+// 散文単位を共有し、markdown の扱い（fence / display 数式 / 構造行 / inline code / URL / 段落 /
+// bullet 行群 / 文分割）を各自で再実装しない。
 // 抽出の経緯（2026-07-09）: fence pre-pass が codemix と readability に重複し、F2 修正を
 // 二箇所へ適用する実害が出た — 共通変更点（CCP）は一 home へ。
 //
@@ -33,6 +33,71 @@ pub fn strip_fences(text: &str) -> String {
             "\n".repeat(c[0].matches('\n').count())
         })
         .into_owned()
+}
+
+/// display 数式ブロック（`$$ … $$`）を同数改行に置換して除去する（行番号不変）。
+/// `$$` の中身は数式の LaTeX ソース＝散文でない ── fence と同型の扱い。
+///
+/// 出自（2026-07-28 dogfood）: 103 字の display 数式が readability/sentence-length に
+/// 「一文 103 字」として当たり、completeness/unterminated-prose も同じ塊に発火していた。
+/// 空行で段落を切っても `$$` 区切りごと 1 単位として数えられ（103 → 107 字）、fence へ逃がすと
+/// 数式として描画されなくなる。`$` / `$$` は記法の標準として動かせないので、correo 側が fence と
+/// 同じく「散文でない source block」として除外する。
+///
+/// inline 数式（`$ … $`）は対象にしない: 通貨表記（`$100`）や shell 変数と衝突する一方、
+/// 一文の長さを壊すのは display のほうだけという実測に基づく。
+///
+/// 対の判定に二つの guard を置く ── 誤った対は「地の文を丸ごと黙って飲み込む」＝ lint の
+/// 最悪の壊れ方（沈黙する偽陰性）だからである:
+///   (a) inline code（`` `…` ``）の中の `$$` は記法の**言及**であって区切りでない。本 repo の
+///       README 自身が `$$` の扱いを説明していて、素朴に対にすると説明の散文が消える（実測）。
+///       検出は inline code を byte 長そのままで伏せた複製の上で行い、置換は原文の同じ byte
+///       範囲へ返す（行数保存の契約を壊さないため長さを保つ）。
+///   (b) 空行（段落境界）を跨ぐ対は数式でない。display 数式に空行は入らないので、跨いだ時点で
+///       「閉じていない `$$` が別の段落の `$$` と偶然対になった」形と判じ、原文のまま残す。
+pub fn strip_display_math(text: &str) -> String {
+    // (a) inline code を伏せた複製。byte 長を保つため 1 文字を「その utf8 長ぶんの空白」に置く。
+    let inline = Regex::new(r"`[^`\n]*`").unwrap();
+    let mut masked = String::with_capacity(text.len());
+    let mut cut = 0usize;
+    for m in inline.find_iter(text) {
+        masked.push_str(&text[cut..m.start()]);
+        for ch in m.as_str().chars() {
+            for _ in 0..ch.len_utf8() {
+                masked.push(' ');
+            }
+        }
+        cut = m.end();
+    }
+    masked.push_str(&text[cut..]);
+    debug_assert_eq!(masked.len(), text.len(), "mask が byte 長を変えた");
+
+    let math = Regex::new(r"(?s)\$\$.*?\$\$").unwrap();
+    let mut out = String::with_capacity(text.len());
+    let mut cut = 0usize;
+    for m in math.find_iter(&masked) {
+        // 対の境界は必ず `$$`（ASCII）── mask は byte 長を保つので原文でも同じ位置を指す。
+        let raw = &text[m.start()..m.end()];
+        if raw.contains("\n\n") {
+            continue; // (b) 段落を跨ぐ対は数式でない — 原文のまま残す
+        }
+        out.push_str(&text[cut..m.start()]);
+        for _ in 0..raw.matches('\n').count() {
+            out.push('\n');
+        }
+        cut = m.end();
+    }
+    out.push_str(&text[cut..]);
+    out
+}
+
+/// 散文でない source block（code fence ＋ display 数式）をまとめて除去する（行番号不変）。
+/// fence を先に消すのが順序の契約 ── fence 内の `$$`（shell の `$$`・数式の例示）が外の `$$` と
+/// 対になって地の文を飲み込むのを防ぐ。
+/// fence だけ／数式だけを消したい検出器は無いので、抽出はこの合成を単一の入口にする
+/// （本 module 冒頭の「markdown の扱いを各自で再実装しない」の適用）。
+pub fn strip_source_blocks(text: &str) -> String {
+    strip_display_math(&strip_fences(text))
 }
 
 /// タグ・コメント等の source 断片を「行数だけ保存する空白」へ変換する。埋め込み改行がある
@@ -215,12 +280,13 @@ pub fn strip_html(text: &str) -> String {
 }
 
 /// 全文 → 行構造を保った「散文だけの」テキスト。
-/// fence は同数改行置換で除去・空白のみ行（space/tab/全角）は空行化・表 `|` / 見出し `#` 行は
-/// 空行化（位置保持）・inline code / URL / §ref / ledger id は文中から strip。
+/// fence と display 数式（`$$ … $$`）は同数改行置換で除去・空白のみ行（space/tab/全角）は
+/// 空行化・表 `|` / 見出し `#` 行は空行化（位置保持）・inline code / URL / §ref / ledger id は
+/// 文中から strip。
 /// pub化（2026-07-11）: notation.rs が表/見出し/inline code 除外を再実装せず共有するため
 /// （CCP は一 home へ、という本 module 冒頭の原則）。
 pub fn clean_lines(text: &str) -> String {
-    let defenced = strip_fences(text);
+    let defenced = strip_source_blocks(text);
     // §ref は `\S+` の貪欲マッチが直後の閉じ括弧・句点まで飲み込む事故があった
     // （`(評論 §2)。` → 「)。」まで消えて文末が消失・2026-07-11・completeness 実装で発覚）。
     // §番号本体（数字・章番号のドット区切り）だけを対象にし、和文の閉じ括弧・句読点は
@@ -360,6 +426,111 @@ mod tests {
         );
         // §番号本体は引き続き除去される（ledger id の strip 契約は不変）。
         assert!(!cleaned.contains("§2"), "§ref 本体が残った: {cleaned:?}");
+    }
+
+    /// 較正 fixture: 実測（2026-07-28 dogfood）で sentence-length に当たった display 数式と
+    /// 同型の、閾値 100 字を越える LaTeX ソース。
+    const DISPLAY_MATH_BODY: &str = r"\mathcal{L}(\theta) = \frac{1}{N}\sum_{i=1}^{N}\Bigl[ y_i \log \hat{p}_i + (1-y_i)\log(1-\hat{p}_i) \Bigr] + \lambda \|\theta\|_2^2";
+
+    #[test]
+    fn strip_display_math_blanks_the_block_and_preserves_line_count() {
+        // 行数保存は fence と同じ絶対条件（finding の行番号は原文の行を指す）。
+        let md = format!("式は次の通り。\n\n$$\n{DISPLAY_MATH_BODY}\n$$\n\n続く本文。");
+        let out = strip_display_math(&md);
+        assert_eq!(
+            out.lines().count(),
+            md.lines().count(),
+            "display 数式の除去で行数が変わった: {out:?}"
+        );
+        assert!(!out.contains("mathcal"), "数式ソースが残った: {out:?}");
+        assert!(
+            out.contains("式は次の通り。") && out.contains("続く本文。"),
+            "地の文まで消してはいけない: {out:?}"
+        );
+    }
+
+    #[test]
+    fn display_math_is_not_counted_as_prose() {
+        // 回帰（2026-07-28 dogfood）: 103 字の display 数式が readability/sentence-length に
+        // 「一文 103 字」として当たり、completeness/unterminated-prose も同じ塊に発火していた。
+        // 数式の LaTeX ソースは散文でない ── fence と同型で散文単位・文の標本から外す。
+        assert!(
+            DISPLAY_MATH_BODY.chars().count() > 100,
+            "fixture が readability の既定閾値を越えていない"
+        );
+        let md =
+            format!("本文はここにある。\n\n$$\n{DISPLAY_MATH_BODY}\n$$\n\n続く本文もここにある。");
+
+        let sents = sentences(&md);
+        assert!(
+            sents.iter().all(|(_, s)| !s.contains("mathcal")),
+            "display 数式が文として数えられた: {sents:?}"
+        );
+        assert!(
+            prose_units(&md).iter().all(|u| !u.text.contains("mathcal")),
+            "display 数式が散文単位として残った"
+        );
+        // 地の文は残り、行番号は原文基準のまま（1 行目と 7 行目）。
+        assert!(
+            sents
+                .iter()
+                .any(|(l, s)| *l == 1 && s.contains("本文はここにある")),
+            "前の地の文が失われた: {sents:?}"
+        );
+        assert!(
+            sents
+                .iter()
+                .any(|(l, s)| *l == 7 && s.contains("続く本文もここにある")),
+            "後の地の文の行番号がずれた: {sents:?}"
+        );
+    }
+
+    #[test]
+    fn inline_math_and_unpaired_dollars_are_left_alone() {
+        // inline `$ … $` は対象外 — 通貨表記・shell 変数と衝突する一方、一文の長さを壊すのは
+        // display 側だけ（除外の根拠は strip_display_math の doc 参照）。
+        let md = "ここで $a$ と $b$ を定義し、費用は $100 とした。";
+        assert_eq!(strip_display_math(md), md, "inline 数式を消してはいけない");
+        // 対にならない `$$` は fence と同じく素通しする（貪欲に飲み込まない）。
+        let unpaired = "閉じない $$ が一つだけある文。";
+        assert_eq!(strip_display_math(unpaired), unpaired);
+    }
+
+    #[test]
+    fn dollars_mentioned_inside_inline_code_do_not_swallow_prose() {
+        // guard (a)（本 repo の README 自身で実測）: `$$` の扱いを説明する散文は inline code で
+        // 記法に言及する。素朴に対にすると説明文が丸ごと消え、以後その段落は無検査になる
+        // （沈黙する偽陰性 = lint の最悪の壊れ方）。
+        let md = "空行で切ると `$$` の区切りまで数える。数式を fence へ移すと描画されなくなる。`$` / `$$` は記法の標準なので動かさない。";
+        assert_eq!(
+            strip_display_math(md),
+            md,
+            "言及の `$$` が地の文を飲み込んだ"
+        );
+        // 飲み込まれていないことを文の側からも確かめる（この段落は 3 文のまま）。
+        assert_eq!(sentences(md).len(), 3, "{:?}", sentences(md));
+    }
+
+    #[test]
+    fn a_pair_spanning_a_blank_line_is_not_treated_as_math() {
+        // guard (b): display 数式に空行は入らない。閉じ損ねた `$$` が別段落の `$$` と対になる形は
+        // 数式でないので原文のまま残す（誤って飲み込むより、素通しして judge に見せる方が安全）。
+        let md = "閉じ忘れた $$ がある段落。\n\n次の段落にも $$ がある。";
+        assert_eq!(strip_display_math(md), md);
+    }
+
+    #[test]
+    fn source_blocks_strip_fences_before_display_math() {
+        // 順序の契約: fence を先に消さないと、fence 内の `$$`（shell の PID・数式の例示）が
+        // 外の `$$` と対になって地の文を丸ごと飲み込む。
+        let md = "前の文。\n\n```sh\necho $$\n```\n\n後の文。ここに $$ が一つある。";
+        let out = strip_source_blocks(md);
+        assert_eq!(out.lines().count(), md.lines().count(), "行数保存: {out:?}");
+        assert!(!out.contains("echo"), "fence の中身が残った: {out:?}");
+        assert!(
+            out.contains("前の文。") && out.contains("後の文。"),
+            "fence 内の $$ が地の文を飲み込んだ: {out:?}"
+        );
     }
 
     #[test]
