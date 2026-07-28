@@ -106,13 +106,20 @@ pub fn doc_stats(text: &str) -> RhythmStats {
         .into_iter()
         .filter(|(line, s)| !marker_lines.contains(line) && s.ends_with(['。', '！', '？']))
         .collect();
-    let lengths: Vec<f64> = sents.iter().map(|(_, s)| s.chars().count() as f64).collect();
+    let lengths: Vec<f64> = sents
+        .iter()
+        .map(|(_, s)| s.chars().count() as f64)
+        .collect();
     let (mu, sd, b) = if lengths.is_empty() {
         (0.0, 0.0, 0.0)
     } else {
         let mu = mean(&lengths);
         let sd = pstdev(&lengths, mu);
-        let b = if sd + mu > 0.0 { (sd - mu) / (sd + mu) } else { 0.0 };
+        let b = if sd + mu > 0.0 {
+            (sd - mu) / (sd + mu)
+        } else {
+            0.0
+        };
         (mu, sd, b)
     };
 
@@ -136,7 +143,11 @@ pub fn doc_stats(text: &str) -> RhythmStats {
         (0.0, 0.0)
     } else {
         let pmu = mean(&counts);
-        let pcv = if pmu > 0.0 { pstdev(&counts, pmu) / pmu } else { 0.0 };
+        let pcv = if pmu > 0.0 {
+            pstdev(&counts, pmu) / pmu
+        } else {
+            0.0
+        };
         (pmu, pcv)
     };
 
@@ -197,7 +208,12 @@ mod tests {
     /// ほぼ等長の文を n 本（機械的リズム: burstiness ≈ CV≈0 → -1 に近い）。
     fn monotone(n: usize) -> String {
         (0..n)
-            .map(|i| format!("第{:02}回の測定では基準信号との相互相関から時間遅れを推定して補正した。", i))
+            .map(|i| {
+                format!(
+                    "第{:02}回の測定では基準信号との相互相関から時間遅れを推定して補正した。",
+                    i
+                )
+            })
             .collect::<Vec<_>>()
             .join("")
     }
@@ -221,7 +237,10 @@ mod tests {
             hits.iter().any(|x| x.rule == "flat-rhythm"),
             "等長 35 文で flat-rhythm が発火しない"
         );
-        assert!(hits.iter().all(|x| matches!(x.severity, Severity::Advisory)));
+        assert!(
+            hits.iter()
+                .all(|x| matches!(x.severity, Severity::Advisory))
+        );
         assert!(
             scan(&varied(20)).iter().all(|x| x.rule != "flat-rhythm"),
             "短長混在の文書で誤爆"
@@ -248,7 +267,12 @@ mod tests {
         );
         // blockquote も同様（引用は他人の文体）。
         let quoted: String = (0..35)
-            .map(|i| format!("> 第{:02}回の測定では基準信号との相互相関から時間遅れを推定して補正した。\n", i))
+            .map(|i| {
+                format!(
+                    "> 第{:02}回の測定では基準信号との相互相関から時間遅れを推定して補正した。\n",
+                    i
+                )
+            })
             .collect();
         assert!(
             scan(&quoted).iter().all(|x| x.rule != "flat-rhythm"),
