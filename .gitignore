@@ -4,3 +4,5 @@
 *.tar.gz
 *.zip
 Cargo.lock.bak
+# CocoIndex Code (ccc)
+/.cocoindex_code/
