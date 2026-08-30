@@ -1,8 +1,13 @@
 # correo — mise task runner。
-# [tools] は宣言しない: Rust toolchain は既存の cargo/rustup をそのまま使う（mise 管理外）。
+# The tools table below declares only runtimes task BODIES invoke (wiring-mise-tasks
+# RUNTIME-DECLARED contract): bun for the scripts/*.ts launchers. Rust toolchain stays
+# undeclared — it uses the existing cargo/rustup already on the machine (mise 管理外)。
 # 命名規則(wiring-mise-tasks 契約): 区切りは ":" のみ。形は <domain>:<action>。do/verify は X + X:check。check = 全 gate 集約。
 # setup は意図的に無い（cargo が build 時に依存解決・Rust 方式。setup:* は任意の辞書/hook 導入）:
 # mise-contract: waive setup -- cargo resolves deps at build; setup:* are optional dict/hook installs
+
+[tools]
+bun = "1.3.14"
 
 [tasks.fmt]
 alias = "f"                                        # ← `mise run f` はこの alias で解決する（要件）
@@ -70,52 +75,15 @@ run = "git config core.hooksPath .githooks && echo 'core.hooksPath = .githooks'"
 
 [tasks.bump]
 description = "version の z を進める（同月なら z+1・月替わりなら 0.YYMM.0）。tag より既に進んでいれば no-op。CalVer next の計算はこのタスクだけが持つ"
-run = '''
-tag=$(git describe --tags --abbrev=0 --match 'v*'); tag_ver=${tag#v}
-ver=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-if [ "$ver" != "$tag_ver" ] && [ "$(printf '%s\n%s\n' "$tag_ver" "$ver" | sort -V | tail -n1)" = "$ver" ]; then
-  echo "already bumped: $ver > $tag_ver"; exit 0
-fi
-yymm=$(date +%y%m)
-case "$tag_ver" in
-  0.$yymm.*) next="0.$yymm.$(( ${tag_ver##*.} + 1 ))" ;;
-  *)         next="0.$yymm.0" ;;
-esac
-command -v cargo-set-version >/dev/null 2>&1 || cargo install cargo-edit
-cargo set-version "$next"
-cargo check --quiet
-echo "bumped: $ver -> $next"
-'''
+run = "bun scripts/bump.ts"
 
 [tasks."setup:sudachidict"]
 description = "Sudachi 辞書(core) を sudachidict-core wheel から ~/.cache/correo へ抽出（coinage の live エンジン用・resolve_dict_dir の最終 fallback と一致・要 uv）"
-run = '''
-mkdir -p ~/.cache/correo
-uv run --with sudachipy --with sudachidict-core python -c "
-import sudachidict_core, sudachipy, pathlib, shutil
-dst = pathlib.Path.home() / '.cache' / 'correo'
-shutil.copy(pathlib.Path(sudachidict_core.__file__).parent / 'resources' / 'system.dic', dst / 'system.dic')
-for f in (pathlib.Path(sudachipy.__file__).parent / 'resources').iterdir():
-    if f.is_file():
-        shutil.copy(f, dst / f.name)
-print('correo dict ready:', dst)"
-'''
+run = "bun scripts/setup-sudachidict.ts"
 
 [tasks."setup:corpus"]
 description = "coinage の corpus 照合用語彙表を構築（SudachiDict full lex CSV の全表層 ∪ jawiki 記事タイトル → ~/.cache/correo/corpus.tsv）。lex CSV は辞書編纂者が実在を裁定済みの語彙 — core 辞書の C 単位に無い複合（使用例・実用文）を実在側へ救い、真の造語（機械床）だけを error に残す。BCCWJ 長単位語彙表（doi.org/10.15084/00003212）へ差し替え可"
-run = '''
-mkdir -p ~/.cache/correo
-T=$(mktemp -d)
-curl -sL https://dumps.wikimedia.org/jawiki/latest/jawiki-latest-all-titles-in-ns0.gz \
-  | gunzip | sed 's/_/ /g' > "$T/words"
-for f in core_lex notcore_lex; do
-  curl -sL "http://sudachi.s3-ap-northeast-1.amazonaws.com/sudachidict-raw/20260428/${f}.zip" -o "$T/$f.zip"
-  unzip -p "$T/$f.zip" | cut -d, -f1 >> "$T/words"
-done
-sort -u "$T/words" > ~/.cache/correo/corpus.tsv
-rm -rf "$T"
-wc -l ~/.cache/correo/corpus.tsv
-'''
+run = "bun scripts/setup-corpus.ts"
 
 [tasks.install]
 description = "correo を local に install（cargo install --path .）"
