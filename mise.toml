@@ -20,8 +20,16 @@ run = "cargo fmt --all -- --check"
 
 [tasks.lint]
 alias = "l"
+description = "lint 集約: clippy + version-guard（index 基準）。pre-commit gate の中身でもある"
+depends = ["lint:clippy", "lint:version"]
+
+[tasks."lint:clippy"]
 description = "clippy 静的解析（全 target/feature・warning を deny）"
 run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks."lint:version"]
+description = "version-guard（index 基準 = commit に乗る内容）: 出荷物が最終 release tag から変化しているなら bump 済みであること"
+run = "sh scripts/version-guard.sh"
 
 [tasks.test]
 alias = "t"
@@ -64,10 +72,16 @@ depends = ["fmt:check", "lint", "test", "lint:self", "version:check"]
 
 # version 規約（CalVer 0.YYMM.z）の機械 gate。規則は prose でなく hook が持つ:
 # 「出荷物（src/・lexicons/・Cargo.toml・Cargo.lock）が最終 release tag から変化しているなら
-#  version は tag より厳密に大きい」。正本 script は .githooks/pre-commit（one home）。
+#  version は tag より厳密に大きい」。正本 script は scripts/version-guard.sh（one home）。
 [tasks."version:check"]
 description = "version-guard: 出荷物が最終 release tag から変化しているなら bump 済みであることを検査（pre-commit と同じ・作業樹基準）"
-run = "sh .githooks/pre-commit --worktree"
+run = "sh scripts/version-guard.sh --worktree"
+
+# git の各 hook で何が走るかはここで宣言する。.githooks/<event> は `mise run --jobs 1 hook:<event>`
+# を呼ぶだけの殻。gate の task は契約 verb の depends のみ（run 本体なし）— 本体は verb から乖離する。
+[tasks."hook:pre-commit"]
+description = "commit gate — .githooks/pre-commit が走らせるものそのもの。契約 verb の depends のみ（wiring-repositories HOOK-1）"
+depends = ["fmt:check", "lint"]
 
 [tasks."setup:hooks"]
 description = "repo の git hooks を有効化（core.hooksPath → .githooks・version-guard が commit 時に効く）"

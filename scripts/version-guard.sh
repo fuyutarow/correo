@@ -1,0 +1,44 @@
+#!/bin/sh
+# version-guard — 出荷物が最終 release tag から変化しているのに Cargo.toml の version が
+# bump されていない commit を deny する（CalVer 0.YYMM.z・正しい次番号は `mise run bump` が計算）。
+#
+# 呼び出し: `mise run lint:version`（既定 --index = commit に乗る内容。`mise run lint` 経由で
+# pre-commit gate からも走る）と `mise run version:check`（--worktree = staged 前の作業樹）。
+#（index を読むので、作業樹だけ bump しても commit に乗らなければ deny）。
+# 2026-09-22 まで .githooks/pre-commit 自身だった。gate hook は mise.toml の hook:pre-commit
+# （契約 verb の depends のみ）を呼ぶだけの殻にする規則（wiring-repositories HOOK-1）で移設。
+# 迂回: `git commit --no-verify`（裁定理由を commit message に残す）。
+#
+# 出荷物 = 配布 binary/tarball の中身を変える path（src/・lexicons/・Cargo.toml・Cargo.lock）。
+# README や workflows だけの commit は bump を要求しない。
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+mode="${1:---index}"
+
+tag=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null) || exit 0 # tag 無し（新規 repo）は対象外
+tag_ver=${tag#v}
+
+if [ "$mode" = "--worktree" ]; then
+    ver=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+else
+    ver=$(git show :Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
+fi
+
+changed=$(
+    {
+        git diff --name-only "$tag"..HEAD -- src lexicons Cargo.toml Cargo.lock
+        git diff --cached --name-only -- src lexicons Cargo.toml Cargo.lock
+        [ "$mode" = "--worktree" ] && git diff --name-only -- src lexicons Cargo.toml Cargo.lock || true
+    } | sort -u
+)
+[ -n "$changed" ] || exit 0 # 出荷物は tag のまま — version 据え置きで正しい
+
+# bump 済み（tag より厳密に大きい）なら pass
+if [ "$ver" != "$tag_ver" ] && [ "$(printf '%s\n%s\n' "$tag_ver" "$ver" | sort -V | tail -n1)" = "$ver" ]; then
+    exit 0
+fi
+
+echo "version-guard: 出荷物が $tag から変化しているのに version = \"$ver\" のまま" >&2
+echo "  変化した出荷物: $(echo "$changed" | head -n5 | tr '\n' ' ')" >&2
+echo "  対処: mise run bump（z を進める）／迂回: git commit --no-verify" >&2
+exit 1
