@@ -7,7 +7,7 @@
 # mise-contract: waive setup -- cargo resolves deps at build; setup:* are optional dict/hook installs
 
 [tools]
-bun = "1.3.14"
+bun = "1.4"
 
 [tasks.fmt]
 alias = "f"                                        # ← `mise run f` はこの alias で解決する（要件）
